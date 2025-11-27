@@ -3,3 +3,5 @@ pydantic
 sympy
 aiossechat
 colorlog
+attrs
+typeguard

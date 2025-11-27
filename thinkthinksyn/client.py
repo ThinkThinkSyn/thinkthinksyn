@@ -15,13 +15,16 @@ _T = TypeVar("_T")
 class ThinkThinkSyn:
     '''Client for interacting with the ThinkThinkSyn API.'''
 
-    base_url: str = "https://api.thinkthinksyn.com/tts/ai"
+    base_url: str = "https://api.thinkthinksyn.com"
     '''Client for interacting with the ThinkThinkSyn API.'''
     apikey: str = ""
     '''API key for authentication.'''
 
     # region basic utils
-    async def _request(self, endpoint:str, payload: dict, return_type: type[_T])->_T:
+    def _ai_url(self, endpoint: str) -> str:
+        return f"{self.base_url.rstrip('/')}/tts/ai/{endpoint.lstrip('/')}"
+    
+    async def _request_ai(self, endpoint:str, payload: dict, return_type: type[_T])->_T:
         endpoint = endpoint.lstrip("/")
         async with aiohttp.ClientSession() as session:
             if self.apikey:
@@ -29,21 +32,21 @@ class ThinkThinkSyn:
             else:
                 headers = {}
             payload['stream'] = False
-            async with session.post(f"{self.base_url}/{endpoint}", json=payload, headers=headers) as response:
+            async with session.post(self._ai_url(endpoint), json=payload, headers=headers) as response:
                 response.raise_for_status()
                 r = await response.json()
                 if TYPE_CHECKING:
                     assert isinstance(r, return_type)
                 return r
 
-    async def _stream_request(self, endpoint:str, payload: dict)->AsyncGenerator[SSEvent, None]:
+    async def _stream_request_ai(self, endpoint:str, payload: dict)->AsyncGenerator[SSEvent, None]:
         endpoint = endpoint.lstrip("/")
         if self.apikey:
             headers = {"Authorization": f"Bearer {self.apikey}"}
         else:
             headers = {}
         payload['stream'] = True
-        async for e in aiosseclient(url=f'{self.base_url}/{endpoint}', method='post', json=payload, headers=headers):
+        async for e in aiosseclient(url=self._ai_url(endpoint), method='post', json=payload, headers=headers):
             yield e
     # endregion
 
@@ -84,7 +87,7 @@ class ThinkThinkSyn:
     
     async def completion(self, /, **payload: Unpack[CompletionInput])->CompletionOutput:
         payload = self._validate_completion_input(**payload)
-        return await self._request(
+        return await self._request_ai(
             endpoint="/completion",
             payload=payload,    # type: ignore
             return_type=CompletionOutput,
@@ -92,7 +95,7 @@ class ThinkThinkSyn:
     
     async def stream_completion(self, /, **payload: Unpack[CompletionInput])->AsyncGenerator[CompletionStreamOutput, None]:
         payload = self._validate_completion_input(**payload)
-        async for event in self._stream_request(
+        async for event in self._stream_request_ai(
             endpoint="/completion",
             payload=payload,    # type: ignore
         ):

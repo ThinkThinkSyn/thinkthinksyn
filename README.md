@@ -1,5 +1,7 @@
 #### Client for accessing ThinkThinkSyn AI API Service.
 
+Required Python >= 3.11
+
 Example:
 ```python
 import asyncio
