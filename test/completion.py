@@ -50,8 +50,22 @@ async def test_image():
         model_filter=(LLM.Name == Qwen3_30B_A3B_Omni_Instruct.Name),
     )
     return adapter.validate_json(result['text'])
-    
 
+@register_testing(module)
+async def test():    
+    class CalculationResult(BaseModel):
+        explain: str
+        result: float|int
+
+    class MCResult[T](BaseModel):
+        solution: T
+        chosen: str
+
+    r = (await tts.completion(
+        prompt=f'Solve the math problem: 2+2*2. Here are the choices: A. 6, B. 8, C. 4. Respond with this format: {MCResult[CalculationResult].model_json_schema()}',
+        json_schema=MCResult[CalculationResult].model_json_schema()
+    ))['text']
+    return MCResult[CalculationResult].model_validate_json(r)
+    
 if __name__ == '__main__':
     run_testing(module)
-    
