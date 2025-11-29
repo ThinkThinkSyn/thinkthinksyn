@@ -1,0 +1,29 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+version = "0.0.1"
+
+[project]
+name = "thinkthinksyn"
+dependencies = [
+  "httpx",
+  "sympy",
+  "numpy",
+  "pydantic",
+  "aiossechat",
+  "colorlog",
+  "attrs",
+  "typeguard",
+  "typing>=3.7",
+  "typing-extensions>=4.14",
+]
+
+[project]
+requires-python = ">= 3.11"
+
+[project]
+authors = [
+  {name = "ThinkThinkSyn", email = "contact@thinkthinksyn.com"},
+]

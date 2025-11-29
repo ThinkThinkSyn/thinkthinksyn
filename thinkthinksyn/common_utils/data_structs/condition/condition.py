@@ -3,19 +3,20 @@ import inspect
 import logging
 import numpy as np
 
-from attr import attrs
 from functools import partial
 from pydantic import BaseModel as BaseModelV2
 from pydantic.v1 import BaseModel as BaseModelV1
 from sympy import (And, Or, simplify_logic, Expr, Eq, Ne, symbols, false as _False, true as _True, 
                    solve, sstr)
-from typing import (Any, Self, Mapping, Iterable, Set, no_type_check, TYPE_CHECKING,
-                    Final, overload, get_args)
+from typing import (Any, Self, Mapping, Iterable, Set, no_type_check, Final, overload, get_args)
 from typing_extensions import override
 
 from .parser import (BaseConditionOperator, ConditionOperator, _inverse_base_operator, _operator_map, 
                      _parse_base_condition, _valid_base_ops, _parse_condition)
-from ._utils import hash_md5
+from ._utils import hash_md5, get_num_from_text
+from ..advanced_builtins import FuzzySet, FuzzyDict
+from ...type_utils import (get_pydantic_model_field_aliases, deserialize, recursive_dump_to_basic_types, serialize, serializable_attrs,
+                           is_serializable)
 
 _logger = logging.getLogger(__name__)
 _inverse_operator = {
@@ -421,7 +422,7 @@ class _ConditionBase:
         # for `serializable_attrs`
         return str(self)
 
-@attrs(eq=False)
+@serializable_attrs(eq=False)
 class BaseCondition(_ConditionBase):
     '''
     Base condition class which contains 1 attribute and 1 operator.
@@ -835,12 +836,7 @@ class BaseCondition(_ConditionBase):
             _logger.debug(f'Error when validating condition on `{obj}` with condition `{self}`: {type(e).__name__}: {e}')
             return False
 
-if TYPE_CHECKING:
-    _serializable_attrs = lambda x: x
-else:
-    _serializable_attrs = lambda x: serializable_attrs(eq=False)(x)
-
-@_serializable_attrs
+@serializable_attrs(eq=False)
 class Condition(_ConditionBase):
     
     left: "Condition|BaseCondition|bool"
@@ -1192,63 +1188,3 @@ __all__ = [
     'TrueCondition',
     'FalseCondition',
 ]
-
-if __name__ == '__main__':
-    def basic_test():
-        base_cond1 = BaseCondition(attr='b.c', operator='>', value=1)
-        base_cond2 = BaseCondition(attr='s', operator='=', value='hi')
-        cond = Condition(
-            left=Condition(
-                left=base_cond1,
-                operator='or',
-                right=base_cond2
-            ), 
-            operator='and', 
-            right=base_cond2
-        )
-        print('before normalize:', cond)
-        cond.normalize()
-        print('after normalize:', cond) # x(x+y) = x
-        
-        from attr import attrib
-        @serializable_attrs
-        class B:
-            c: int
-        @serializable_attrs
-        class A:
-            b: B
-            s: str
-            lst: list[int] = attrib(factory=list)
-        
-        a1 = A(b=B(c=2), s='hi', lst=[1,])
-        a2 = A(b=B(c=1), s='hi uncle')
-        print('validate a1:', cond.validate(a1))
-        print('validate a2:', cond.validate(a2))
-        
-        cond2 = cond & base_cond1
-        print('after add base_cond1:', cond2)
-        cond2.normalize()
-        print('after normalize:', cond2) # should be the same
-        print('validate a1:', cond2.validate(a1))
-        print('validate a2:', cond2.validate(a2))
-        
-        cond3 = cond & (base_cond1 | BaseCondition(attr='b.c', operator='=', value=1))  # will merge into `>=1`
-        print('cond3:', cond3)
-        cond3.normalize()
-        print('after normalize:', cond3) # should be the same
-        print('validate a1:', cond3.validate(a1))
-        print('validate a2:', cond3.validate(a2))
-        
-        query = 'b.c >= 1 and s in ["hi", "hi uncle"]'
-        cond4 = Condition.Parse(query)
-        print('cond4:', cond4)
-        print('validate a1:', cond4.validate(a1))
-        print('validate a2:', cond4.validate(a2))
-        
-        query = 'lst contains 1'
-        cond5 = Condition.Parse(query)
-        print('cond5:', cond5)
-        print('validate a1:', cond5.validate(a1))
-        print('validate a2:', cond5.validate(a2))
-        
-    basic_test()

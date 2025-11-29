@@ -2,9 +2,10 @@ import logging
 
 from json import loads
 from dataclasses import dataclass
-from typing import Literal, TYPE_CHECKING, get_args
+from typing import Literal, TYPE_CHECKING, get_args, TypeAlias
 
 from ._utils import get_num_from_text
+from ...type_utils import deserialize
 
 _logger = logging.getLogger(__name__)
 
@@ -14,7 +15,7 @@ if TYPE_CHECKING:
 _should_log = (__name__ == '__main__')
 
 
-type BaseConditionOperator = Literal['=', '!=', '>', '<', '>=', '<=', 'in', 'not in', 'contains', 'not contains']
+BaseConditionOperator: TypeAlias = Literal['=', '!=', '>', '<', '>=', '<=', 'in', 'not in', 'contains', 'not contains']
 '''
 Operators for attribute conditions.
 - '=': equal
@@ -245,7 +246,7 @@ def _parse_base_condition(query: str, calling_by_parse_cond: bool=False) -> tupl
         elif var == 'op':
             op += char
         elif var == 'value':
-            value += char   
+            value += char       # type: ignore
         else:
             raise ValueError(f"Invalid variable name: `{var}`")
     
@@ -472,10 +473,10 @@ def _parse_base_condition(query: str, calling_by_parse_cond: bool=False) -> tupl
             except:
                 ...
 
-    return _BaseCond(attr, op, value), query    
+    return _BaseCond(attr, op, value), query    # type: ignore  
 
 
-type ConditionOperator = Literal['and', 'or']
+ConditionOperator: TypeAlias = Literal['and', 'or']
 '''
 Operator for joining base conditions,
 e.g. `a.b.c = 1 and d.e.f > 2`
@@ -700,15 +701,3 @@ __all__ = [
     'BaseConditionOperator',
     'ConditionOperator',
 ]
-
-if __name__ == '__main__':
-    # test
-    query = 'a.b.c = 1 and (d.e.f > 2 or g.h.i != 3)'
-    cond, rest = _parse_base_condition(query)
-    print('base cond:', cond, '| rest:', rest)
-    
-    print('----' * 5)
-    
-    query = 'a.b.c = 1 and (d.e.f > 2 or g.h.i != 3) and (j.k.l in [1, 2, True] or m.n.o not in [4, 5, 6])'
-    cond, rest = _parse_condition(query)
-    print('cond:', cond)

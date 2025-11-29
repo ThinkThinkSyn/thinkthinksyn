@@ -5,3 +5,5 @@ aiossechat
 colorlog
 attrs
 typeguard
+typing>=3.7
+typing-extensions>=4.14

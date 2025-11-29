@@ -1,20 +1,12 @@
-import os, sys
-
-if __name__ == "__main__":  # for debugging
-    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-    sys.path.append(_proj_path)
-    __package__ = "utils.common.type_utils"
-
-import re
 import orjson
+import logging
 import builtins
 import inspect
 
 from attr import Attribute, attrs, NOTHING
-from dataclasses import dataclass
 from functools import partial
 from inspect import _empty
-from types import UnionType, NoneType, GenericAlias, get_original_bases
+from types import UnionType, NoneType, GenericAlias
 from typing import (
     Any,
     Union,
@@ -31,7 +23,6 @@ from typing import (
     Coroutine,
     ForwardRef,
     TypeVarTuple,
-    TypeAliasType,
     no_type_check,
     TYPE_CHECKING,
     get_args as tp_get_args,
@@ -41,7 +32,7 @@ from typing import (
     _CallableGenericAlias,  # type: ignore
     is_typeddict,
 )
-from typing_extensions import TypeForm
+from typing_extensions import TypeForm, TypeAliasType
 from pydantic.v1 import BaseModel as BaseModelV1
 from pydantic.v1.fields import Undefined as PydanticV1Undefined
 from pydantic import BaseModel as BaseModelV2, AliasChoices, create_model, ConfigDict
@@ -49,8 +40,7 @@ from pydantic.fields import PydanticUndefined  # type: ignore
 from pydantic_core import core_schema
 from pydantic_core.core_schema import JsonOrPythonSchema
 
-from ..global_utils import SourcePath, get_or_create_global_value
-from ..debug_utils import log_warning
+_logger = logging.getLogger(__name__)
 
 # region types
 BasicType: TypeAlias = int | float | str | bool | bytes | list | tuple | dict | set | NoneType
@@ -59,7 +49,7 @@ BasicType: TypeAlias = int | float | str | bool | bytes | list | tuple | dict | 
 BaseModelType: TypeAlias = BaseModelV1 | BaseModelV2
 """BaseModel type of pydantic, including BaseModelV1 and BaseModelV2"""
 
-type Number = int | float
+Number = TypeAliasType("Number", int | float)
 """Number type, including int and float"""
 
 
@@ -87,11 +77,31 @@ __all__ = [
 ]
 # endregion
 
+def get_original_bases(cls: type) -> list[type]:
+    """
+    Get the original bases of a class, including generic types.
+    Different with `cls.__bases__`, this function will return the original bases with type arguments(if any).
+    e.g.
+        ```
+        class A[T]: ...
+        class B(A[int]): ...
+        get_original_bases(B) -> [A[int]]
+        ```
+    """
+    if hasattr(cls, "__orig_bases__"):
+        return list(cls.__orig_bases__)  # type: ignore
+    else:
+        return list(cls.__bases__)  # type: ignore
+
+_T = TypeVar('_T')
+_TT = TypeVar('_TT', bound=type)
+_TO = TypeVar('_TO', bound=object)
 
 @overload
-def get_sub_clses[T: type](cls_or_ins: T) -> tuple[T, ...]: ...
+def get_sub_clses(cls_or_ins: _TT) -> tuple[_TT, ...]: ...
 @overload
-def get_sub_clses[T: object](cls_or_ins: T) -> tuple[type[T], ...]: ...
+def get_sub_clses(cls_or_ins: _TO) -> tuple[type[_TO], ...]: ...
+
 def get_sub_clses(cls_or_ins):
     """
     Get all sub classes of a class, recursively.
@@ -116,7 +126,6 @@ def get_sub_clses(cls_or_ins):
                 if sub_sub_cls not in all_subclses:
                     all_subclses.append(sub_sub_cls)
         return tuple(all_subclses)
-
 
 def getmro(cls: type) -> tuple[type, ...]:
     """
@@ -257,7 +266,6 @@ def get_cls_annotations(
         tidied[k] = t
     return tidied
 
-
 def get_origin(t: Any, self=None, return_t_if_no_origin: bool = False) -> type | None:  # type: ignore
     """
     Return the origin type of the type hint.
@@ -301,7 +309,6 @@ def get_origin(t: Any, self=None, return_t_if_no_origin: bool = False) -> type |
         return t
     return origin
 
-
 def get_args(t, str_to_type: bool = True) -> tuple[Any, ...]:
     """
     Return the args of the type hint.
@@ -333,7 +340,6 @@ def get_args(t, str_to_type: bool = True) -> tuple[Any, ...]:
             else:
                 converted_r.append(arg)
     return r
-
 
 def get_cls_name(
     cls: Any,
@@ -489,7 +495,6 @@ def get_cls_name(
             return f"{module_name}.{n}"
     return n
 
-
 @no_type_check
 def get_module_name(t: Any) -> str:
     """
@@ -501,12 +506,9 @@ def get_module_name(t: Any) -> str:
     By using this function, you could get the proper module name `utils.xxx....` instead of `__main__`
     """
     from .checking import _get_module_name
-
     return _get_module_name(t)
 
-
 MAX_MRO_DISTANCE = 999
-
 
 def get_mro_distance(cls: Any, super_cls: type | str | None) -> int:
     """
@@ -560,17 +562,14 @@ def get_mro_distance(cls: Any, super_cls: type | str | None) -> int:
         except ValueError:  # not found
             return MAX_MRO_DISTANCE
 
-
 def is_builtin(obj: Any) -> bool:
     """check if an object is a builtin function or type."""
     from .checking import _tidy_type
-
     obj = _tidy_type(obj)[0]  # type: ignore
     if not (r := inspect.isbuiltin(obj)):
         cls_name = get_cls_name(obj)
         r = hasattr(builtins, cls_name)
     return r
-
 
 @overload
 def getattr_raw(obj: Any, attr_name: str) -> Any: ...
@@ -578,7 +577,6 @@ def getattr_raw(obj: Any, attr_name: str) -> Any: ...
 def getattr_raw(obj: Any, attr_name: str, raise_err: Literal[True]) -> Any: ...
 @overload
 def getattr_raw(obj: Any, attr_name: str, raise_err: Literal[False]) -> Any | inspect.Parameter.empty: ...
-
 
 def getattr_raw(obj, attr_name: str, raise_err=True):
     """
@@ -599,309 +597,8 @@ def getattr_raw(obj, attr_name: str, raise_err=True):
     raise AttributeError(f"{obj} has no attribute {attr_name}.")
 
 
-__DocCache__: dict[str, "TypeDoc"] = get_or_create_global_value("__TypeDocCache__", dict)
-
-
-@dataclass
-class TypeDoc:
-    """
-    Documentation of a type. This dataclass is returned by `type_utils.get_doc` function.
-    Apart from `__doc__` of the class, this dataclass also includes:
-        - all fields's doc defined with in the class.
-        - all methods's doc defined with in the class.
-    """
-
-    type_doc: str | None
-    """doc of the type"""
-    field_docs: dict[str, str]
-    """doc of the fields. This field only includes docs for fields who has docstring."""
-    attr_docs: dict[str, str]
-    """
-    doc of the other attrs, including all remaining attrs(properties, methods, ...)
-    in this type(except class & fields).
-    """
-    inner_cls_docs: dict[str, "TypeDoc"]
-    """doc of the inner classes. This field only includes docs for inner classes who has docstring."""
-
-
-__AllCleanedSources__: dict[str, str] = get_or_create_global_value("__AllCleanedSources__", dict)
-
-
-def _get_clean_source(t: type) -> str:
-    t_name = get_cls_name(t, with_module_name=True)
-    if t_name in __AllCleanedSources__:
-        return __AllCleanedSources__[t_name]
-    source_lines = [l for l in inspect.cleandoc(inspect.getsource(t)).split("\n") if l.strip()]
-    source = "\n".join(source_lines)
-    __AllCleanedSources__[t_name] = source
-    return source
-
-
-def _clean_comment(comment: str):
-    comment = comment.strip()
-    if (comment.startswith('"""') and comment.endswith('"""')) or (
-        comment.startswith("'''") and comment.endswith("'''")
-    ):
-        return comment[3:-3].strip()
-    elif comment.startswith("#"):
-        return comment[1:].strip()
-    return None
-
-
-def get_doc(t: type) -> TypeDoc:
-    """
-    Try to get detail docs of the given type.
-    This method will return a TypeDoc object, which includes:
-        - doc of the type (__doc__)
-        - doc of the fields
-        - doc of inner classes
-        - doc of the all other attrs
-
-    NOTE: magic methods/some special internal functions will not be included in the doc,
-        e.g. `__signature__`, `__init_subclass__`, `__new__`, `__repr__`, etc...
-    """
-    from .checking import _save_isinstance
-    from .base_clses import AdvanceBaseModel
-
-    if _save_isinstance(t, TypeAliasType):
-        t_name = f"{get_module_name(t.__module__)}.{t.__name__}"
-        if t_name in __DocCache__:
-            return __DocCache__[t_name]
-        type_doc = None
-
-        # this is a full module name
-        module_name = get_module_name(t.__module__)
-        source_file_path = SourcePath / (module_name.replace(".", "/") + ".py")
-
-        # find source file
-        if os.path.exists(source_file_path):
-            search_pattern = r"\s*type\s+{0}\s*=\s*".format(t.__name__)
-            source_line: str | None = None
-            with open(source_file_path) as f:
-                source_lines = f.readlines()
-                for i, line in enumerate(source_lines):
-                    if re.match(search_pattern, line):
-                        if i < len(source_lines) - 1:
-                            source_line = source_lines[i + 1]
-                        break
-            if source_line:
-                type_doc = _clean_comment(source_line)
-        try:
-            full_doc = get_doc(t.__value__)
-            type_alias_doc = TypeDoc(
-                type_doc or full_doc.type_doc,
-                full_doc.field_docs,
-                full_doc.attr_docs,
-                full_doc.inner_cls_docs,
-            )
-        except:
-            type_alias_doc = TypeDoc(type_doc, {}, {}, {})
-        __DocCache__[t_name] = type_alias_doc
-        return type_alias_doc
-
-    if is_builtin(t):
-        raise ValueError(f"Cannot get doc of builtin type {t}.")
-
-    type_name = get_cls_name(t, with_module_name=True)
-    if type_name in __DocCache__:
-        return __DocCache__[type_name]
-
-    full_source = _get_clean_source(t) + "\n"
-    for sub_cls in t.__bases__[::-1]:
-        if not is_builtin(sub_cls):
-            full_source += _get_clean_source(sub_cls) + "\n"
-    full_source = re.sub(r"\n\n+", "\n", full_source, flags=re.MULTILINE)
-    all_sources_lines = [l for l in full_source.split("\n") if l.strip()]
-
-    type_doc = TypeDoc(inspect.getdoc(t), {}, {}, {})
-    if type_doc.type_doc == inspect.getdoc(AdvanceBaseModel):
-        type_doc.type_doc = None  # special treatment for AdvanceBaseModel sub classes
-
-    gotten_attrs: set[str] = set(
-        [
-            "__dict__",
-            "__dir__",
-            "__doc__",
-            "__module__",
-            "__weakref__",
-            "__annotations__",
-            "__class__",
-            "__delattr__",
-            "__dir__",
-            "__doc__",
-            "__eq__",
-            "__format__",
-            "__ge__",
-            "__getattribute__",
-            "__gt__",
-            "__hash__",
-            "__init__",
-            "__init_subclass__",
-            "__le__",
-            "__lt__",
-            "__ne__",
-            "__new__",
-            "__reduce__",
-            "__reduce_ex__",
-            "__repr__",
-            "__setattr__",
-            "__sizeof__",
-            "__signature__",
-            "_abc_impl",
-            "__str__",
-            "__subclasshook__",
-            "__class_getitem__",
-            "__abstractmethods__",
-            "__annotations__",
-            "__base__",
-            "__bases__",
-            "__basicsize__",
-            "__get_pydantic_schema__",
-            "__dictoffset__",
-            "__flags__",
-            "__itemsize__",
-            "__mro__",
-            "__name__",
-            "__qualname__",
-            "__text_signature__",
-            "__weakrefoffset__",
-            "__abstractmethods__",
-            "__getstate__",
-        ]
-    )
-    all_annos = get_cls_annotations(t)
-
-    # get inner methods & classes first.
-    for attr_name in dir(t):
-        if attr_name.startswith("__") and attr_name.endswith("__"):
-            continue
-        if attr_name in gotten_attrs or attr_name in all_annos:  # don't get field docs now
-            continue
-        attr = getattr_raw(t, attr_name, raise_err=False)
-        if attr is inspect.Parameter.empty or is_builtin(attr):
-            continue
-        if isinstance(attr, type):  # inner class
-            inner_cls_doc_str = _get_clean_source(attr)
-            if inner_cls_doc_str:
-                full_source = full_source.replace(inner_cls_doc_str, "")
-                # remove inner class's source from type's source
-            try:
-                inner_type_doc = get_doc(attr)
-                type_doc.inner_cls_docs[attr_name] = inner_type_doc
-            except Exception:
-                continue
-        else:  # methods, property, ...
-            doc_str = inspect.getdoc(attr)
-            if doc_str:
-                type_doc.attr_docs[attr_name] = doc_str
-
-    field_line_indices = {}
-    for i, line in enumerate(all_sources_lines):
-        if m := re.match(r"^[\s\t]*(\w+)[\s\t]*:", line):
-            field_name = m.group(1).strip()
-            if (field_name in all_annos) and (field_name not in field_line_indices):
-                field_line_indices[field_name] = i
-    all_field_names = tuple(field_line_indices.keys())
-
-    def get_field_doc(field_name: str):
-        if (
-            issubclass(t, BaseModelV1)
-            and field_name in t.__fields__
-            and t.__fields__[field_name].field_info.description
-        ):
-            return t.__fields__[field_name].field_info.description
-        elif issubclass(t, BaseModelV2) and field_name in t.model_fields and t.model_fields[field_name].description:
-            return t.model_fields[field_name].description
-
-        if field_name in gotten_attrs or field_name not in field_line_indices:
-            return None
-        if (field_name_index := all_field_names.index(field_name)) >= (len(all_field_names) - 1):
-            till_line_index = len(all_sources_lines)
-        else:
-            till_line_index = field_line_indices[all_field_names[field_name_index + 1]]
-        doc_str = ""
-        for i, line_index in enumerate(range(field_line_indices[field_name] + 1, till_line_index)):
-            line_str = all_sources_lines[line_index].strip()
-            if i == 0:
-                if not (line_str.startswith('"""') or line_str.startswith("'''")):
-                    return None  # no documentation for this field
-                line_str = line_str[3:]
-                doc_str += line_str
-
-            if line_str.endswith('"""') or line_str.endswith("'''"):
-                if i != 0:
-                    doc_str += line_str[:-3]
-                else:
-                    doc_str = doc_str[:-3]
-                break
-            doc_str += line_str
-        else:
-            return None  # doc string not closed
-        return doc_str.strip()
-
-    for field_name in all_annos:
-        if field_name in gotten_attrs or (field_name.startswith("__") and field_name.endswith("__")):
-            continue
-        doc_str = get_field_doc(field_name)
-        if doc_str:
-            type_doc.field_docs[field_name] = doc_str
-        gotten_attrs.add(field_name)
-
-    __DocCache__[type_name] = type_doc
-    return type_doc
-
-
-Empty = inspect.Parameter.empty  # type: ignore
-"""
-Marker object for an empty parameter, for cases that you don't want to use `None` as default value.
-This is actually inspect.Parameter.empty, but some special treatment is done to make it 
-available for easy type hints like `x: T|Empty = Empty`.
-
-Example:
-```python
-def f(x: int|Empty = Empty):
-    ...
-```
-"""
-
-# make `inspect.Parameter.empty` serializable in pydantic
-if not hasattr(inspect.Parameter.empty, "__get_pydantic_core_schema__"):
-
-    @classmethod
-    def __get_pydantic_core_schema__(cls, source, handler):
-        from pydantic_core import core_schema
-
-        def validator(value):
-            if isinstance(value, dict) and value.get("type") == "empty" and len(value) == 1:
-                return inspect.Parameter.empty
-            elif value == inspect.Parameter.empty:
-                return inspect.Parameter.empty
-            raise ValueError(f"Cannot deserialize value `{value}` to empty.")
-
-        def serializer(value):
-            if value != Empty:
-                return value
-            return {
-                "type": "empty",
-            }
-
-        validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
-        serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer, when_used="unless-none")
-        return core_schema.json_or_python_schema(
-            json_schema=validate_schema,
-            python_schema=validate_schema,
-            serialization=serialize_schema,
-        )
-
-    setattr(
-        inspect.Parameter.empty,
-        "__get_pydantic_core_schema__",
-        __get_pydantic_core_schema__,
-    )
-inspect.Parameter.empty.__repr__ = lambda *args: "Empty"  # type: ignore
-
 if TYPE_CHECKING:
-    type Empty = TypeForm["Empty"]
+    Empty = TypeForm["Empty"]
     """
     Marker object for an empty parameter, for cases that you don't want to use `None` as default value.
     This is actually inspect.Parameter.empty, but some special treatment is done to make it 
@@ -913,6 +610,45 @@ if TYPE_CHECKING:
         ...
     ```
     """
+else:
+    Empty = inspect.Parameter.empty  # type: ignore
+
+    # make `inspect.Parameter.empty` serializable in pydantic
+    if not hasattr(inspect.Parameter.empty, "__get_pydantic_core_schema__"):
+
+        @classmethod
+        def __get_pydantic_core_schema__(cls, source, handler):
+            from pydantic_core import core_schema
+
+            def validator(value):
+                if isinstance(value, dict) and value.get("type") == "empty" and len(value) == 1:
+                    return inspect.Parameter.empty
+                elif value == inspect.Parameter.empty:
+                    return inspect.Parameter.empty
+                raise ValueError(f"Cannot deserialize value `{value}` to empty.")
+
+            def serializer(value):
+                if value != Empty:
+                    return value
+                return {
+                    "type": "empty",
+                }
+
+            validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
+            serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer, when_used="unless-none")
+            return core_schema.json_or_python_schema(
+                json_schema=validate_schema,
+                python_schema=validate_schema,
+                serialization=serialize_schema,
+            )
+
+        setattr(
+            inspect.Parameter.empty,
+            "__get_pydantic_core_schema__",
+            __get_pydantic_core_schema__,
+        )
+        
+    inspect.Parameter.empty.__repr__ = lambda *args: "Empty"  # type: ignore
 
 
 def is_attrs_cls(cls: Any) -> bool:
@@ -935,7 +671,7 @@ def is_dataclass(cls: Any) -> bool:
     return hasattr(cls, "__dataclass_fields__")
 
 
-def get_attr_cls_default_pydantic_validator[T](cls: type[T]) -> Callable[[Any], T]:
+def get_attr_cls_default_pydantic_validator(cls: type[_T]) -> Callable[[Any], _T]:
     """
     Create or get a default validator(deserializer) for a class decorated by `@attrs`.
     This validator is valid for using in pydantic module.
@@ -944,7 +680,7 @@ def get_attr_cls_default_pydantic_validator[T](cls: type[T]) -> Callable[[Any], 
 
     NOTE: `Self` is also supported in the validator.
     """
-    from ..data_struct import FuzzyDict
+    from ..data_structs.advanced_builtins import FuzzyDict
     from .convertors import get_pydantic_type_adapter
 
     if "__DefaultAttrPydanticValidator__" in cls.__dict__:
@@ -1233,7 +969,7 @@ def get_attr_cls_default_pydantic_validator[T](cls: type[T]) -> Callable[[Any], 
     return default_validator  # type: ignore
 
 
-def get_attr_cls_pydantic_validator[T](cls: type[T]) -> Callable[[Any], T]:  # type: ignore
+def get_attr_cls_pydantic_validator(cls: type[_T]) -> Callable[[Any], _T]:
     """
     Create or get a validator(deserializer) for a class decorated by `@attrs`.
     This validator is valid for using in pydantic module.
@@ -1466,7 +1202,7 @@ else:
 
                     def get_single_t_core_schema(t):
                         if (t == cls_name) or (t == cls) or (t == Self):
-                            log_warning(
+                            _logger.warning(
                                 f"Class {cls_name} has Self reference type, which is not supported to generate json schema."
                             )
                             return _null
@@ -1560,9 +1296,12 @@ def attrs_cls_has_field(cls, field_name: str, fuzzy=True):
     if not hasattr(cls, "__attrs_attrs__"):
         return False
     if fuzzy:
-        from ..text_utils import fuzzy_compare
+        def _fuzzy_compare(a: str, b: str) -> bool:
+            a = a.lower().replace(' ', '').replace('_', '').replace('-', '')
+            b = b.lower().replace(' ', '').replace('_', '').replace('-', '')
+            return a == b
 
-        match = lambda attr: fuzzy_compare(attr.alias, field_name)
+        match = lambda attr: _fuzzy_compare(attr.alias, field_name)
     else:
         match = lambda attr: attr.alias == field_name
     for attr in cls.__attrs_attrs__:
@@ -1571,9 +1310,7 @@ def attrs_cls_has_field(cls, field_name: str, fuzzy=True):
     return False
 
 
-__base_model_fields_aliases__: dict[type, dict[str, tuple[str, ...]]] = get_or_create_global_value(
-    "__base_model_fields_aliases__", dict
-)
+__base_model_fields_aliases__: dict[type, dict[str, tuple[str, ...]]] = {}
 
 
 def get_pydantic_model_field_aliases(
@@ -1644,10 +1381,11 @@ def pydantic_field_has_default(
             return False
     return True
 
+_T = TypeVar("_T")
 
-def create_pydantic_core_schema[T](
-    validator: Callable[[Any], T], 
-    serializer: Callable[[T], BasicType] | None = None,
+def create_pydantic_core_schema(
+    validator: Callable[[Any], _T], 
+    serializer: Callable[[_T], BasicType] | None = None,
     schema_model: type[BaseModelV1]|type[BaseModelV2]|None = None,
 ):
     """
@@ -1720,6 +1458,7 @@ def get_json_schema(t: type | str) -> dict[str, Any]:
 
 __all__.extend(
     [
+        "get_original_bases",
         "get_origin",
         "get_args",
         "get_cls_name",
@@ -1728,8 +1467,6 @@ __all__.extend(
         "get_sub_clses",
         "get_cls_annotations",
         "is_builtin",
-        "get_doc",
-        "TypeDoc",
         "getattr_raw",
         "Empty",
         "getmro",
@@ -1746,186 +1483,3 @@ __all__.extend(
         "get_json_schema",
     ]
 )
-
-
-if __name__ == "__main__":
-
-    def get_doc_test():
-        class A:
-            """this is A"""
-
-            x: float
-            """123"""
-
-            def f(self):
-                """this is a.f"""
-
-        class B(A):
-            """this is B"""
-
-            y: str
-            """this is b.y"""
-
-            class C:
-                """this is c"""
-
-                x: int
-                """this C.x"""
-
-            z: int
-            """this is b.z"""
-
-        doc_b = get_doc(B)
-        print(doc_b.type_doc)
-        print(doc_b.field_docs)
-        print(doc_b.attr_docs)
-        print(doc_b.inner_cls_docs)
-
-    def get_cls_name_test():
-        print(get_cls_name(...))
-        print(get_cls_name(Callable[[int, str], float]))
-        print(get_cls_name(Callable[..., int]))
-        print(get_cls_name(Callable))
-        print(get_cls_name(int | str))
-        print(get_cls_name(Literal["1", "2"]))
-        print(get_cls_name(ForwardRef("A")))
-        print(get_cls_name(TypeVar("T", str, float), with_module_name=True))
-        print(get_cls_name(ClassVar[int]))
-        print(get_cls_name(type[int]))
-        print(get_cls_name(Annotated[int, "hello"]))
-        print(get_cls_name(Final[int]))
-
-    def serializable_attrs_test():
-        from attr import attrib
-
-        @serializable_attrs
-        class A:
-            x: int = 1
-            a1: "A|None" = None
-            a2: Self | None = None
-            a3: list["A|int|None"] = attrib(
-                factory=lambda: [
-                    None,
-                ]
-            )
-            l: list[int] = attrib(
-                factory=lambda: [
-                    1,
-                    2,
-                    3,
-                ]
-            )
-
-        a = A(a1=A(x=2), a2=A(x=3), a3=[A(x=4), A(x=5)])  # type: ignore
-
-        from pydantic import TypeAdapter
-
-        a_adapter = TypeAdapter(A)
-        dump = a_adapter.dump_python(a)
-        print("dump:", dump)
-        a2 = a_adapter.validate_python(dump)
-        print("validate:", a2)
-
-        print(a_adapter.json_schema())
-
-    def serializable_attrs_test2():
-        @serializable_attrs
-        class A:
-            x: int = 1
-
-            def __pydantic_serialize__(self):
-                return {
-                    "x": self.x,
-                    "type": self.__class__.__name__,
-                }
-
-            @staticmethod
-            def __pydantic_deserialize__(data, default_validator):
-                clses = get_sub_clses(A)
-                type = data.pop("type")
-                for cls in clses:
-                    if cls.__name__ == type:
-                        return cls(**data)
-
-        @serializable_attrs
-        class B(A): ...
-
-        from pydantic import TypeAdapter
-
-        b_adapter = TypeAdapter(B)
-        print(b_adapter.validate_python({"x": 2, "type": "A"}))  # will still be A
-
-        @serializable_attrs
-        class C[T]:
-            x: T
-
-        @serializable_attrs
-        class D(C[int]): ...
-
-        print(get_cls_annotations(C[int]))
-        c_adapter = TypeAdapter(C[int])
-        print(c_adapter.validate_python({"x": "123"}))
-        # this will fail, since we cannot get generic info in @classmethod `__pydantic_deserialize__`
-        # will got `C(x='123')`, not changing to `int`
-
-        print(get_cls_annotations(D))
-        d_adapter = TypeAdapter(D)
-        print(d_adapter.validate_python({"x": 123}))
-        # this will success
-        # will got `D(x=123)`, changing to `int` as expected
-
-    def get_annotation_test():
-        from typing import TypedDict
-        
-        @attrs(auto_attribs=True)
-        class A[T]:
-            Y: ClassVar[int]
-            Z: Final[T]
-            x: T
-
-        class B(A[str]):
-            z: "str"
-            
-        class D[Y](TypedDict):
-            x: int
-            y: Y
-        
-        class DD[Z](D[int]):
-            z: Z
-            
-        class DDD(DD[int]): ...
-
-        print(get_cls_annotations(A))
-        print(get_cls_annotations(B))
-        print(get_cls_annotations(B, no_cls_var=True, no_final=True))
-        print(get_cls_annotations(D))
-        print(get_cls_annotations(D[int]))
-        print(get_cls_annotations(DD))
-        print(get_cls_annotations(DDD))
-
-    def test_json_schema():
-        @serializable_attrs
-        class B:
-            x: int
-
-        @serializable_attrs
-        class A:
-            """testing"""
-
-            b: "B|None" = None
-            """this is b"""
-            x: int = 1
-            """this is x"""
-            y: str = "hello"
-            """this is y"""
-
-        print(get_cls_annotations(A))
-        print()
-        print(get_json_schema(A))
-
-    # get_doc_test()
-    # get_cls_name_test()
-    # serializable_attrs_test()
-    # serializable_attrs_test2()
-    get_annotation_test()
-    # test_json_schema()

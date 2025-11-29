@@ -256,7 +256,6 @@ class CompletionInput(AIInput, total=False):
     The context id for this input.
     If not given, a random context id will be generated.
     '''
-    
     prompt: str
     '''
     The prompt to pass to the model. 

@@ -1,15 +1,9 @@
-if __name__ == "__main__":  # for debugging
-    import os, sys
-    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-    sys.path.append(_proj_path)
-    __package__ = "thinkthinksyn.common_utils.type_utils"
-
 import types
 import typing
+import logging
 import inspect
 import annotated_types
 import typing_extensions
-import logging
 
 from pydoc import locate
 from functools import cache
@@ -48,6 +42,7 @@ from collections.abc import (Callable as CallableType, Mapping as ABCMapping, Mu
 _logger = logging.getLogger(__name__)
 _empty = inspect.Parameter.empty
 _check_sub_cls_cache: dict[tuple[str, str], bool] = dict()  # type: ignore
+_T = TypeVar('_T')
 
 def _save_isinstance(v, t):
     try:
@@ -69,11 +64,16 @@ def get_type_from_str(t: str, raise_err: Literal[True] = True) -> type | str: ..
 def get_type_from_str(t: str, raise_err: Literal[False] = False) -> type: ...
 
 _FAIL_TO_GET_TYPE_FROM_STR = object()  # type: ignore
+_TypingGlobalDict = None
 
-_TypingGlobalDict = typing.__dict__.copy()
-_TypingGlobalDict.update(types.__dict__)
-_TypingGlobalDict.update(typing_extensions.__dict__)
-_TypingGlobalDict.update(annotated_types.__dict__)
+def _get_typing_global_dict():
+    global _TypingGlobalDict
+    if _TypingGlobalDict is None:
+        _TypingGlobalDict = typing.__dict__.copy()
+        _TypingGlobalDict.update(types.__dict__)
+        _TypingGlobalDict.update(typing_extensions.__dict__)
+        _TypingGlobalDict.update(annotated_types.__dict__)
+    return _TypingGlobalDict
 
 def _get_module_name(t):
     if not isinstance(t, str):
@@ -89,11 +89,11 @@ def _get_module_name(t):
     if module == "__main__":
         from pathlib import Path
         import __main__ as _main
-        from ..global_utils import SourcePath
         main_path = Path(_main.__file__).resolve()
+        source_path = main_path.resolve()   # assume `src` dir is the source dir
         try:
             module = (
-                main_path.relative_to(SourcePath)
+                main_path.relative_to(source_path)
                 .with_suffix("")
                 .as_posix()
                 .replace("/", ".")
@@ -138,7 +138,7 @@ def _get_type_from_str(t: str):
             return None
         if real_t := locate(t):
             return real_t
-        global_type_dict = _TypingGlobalDict.copy()
+        global_type_dict = _get_typing_global_dict().copy()
         global_types, local_types = _globals_locals_types()
         global_type_dict.update(global_types)
         return eval(t, global_type_dict, local_types)
@@ -593,11 +593,10 @@ def _direct_check_sub_cls(sub_cls: type | str, super_cls: type | str):
         _check_sub_cls_cache[(sub_cls_name_for_cache, super_cls_name_for_cache)] = result
     return result
 
-
 @overload
-def check_value_is[T](value: Any, types: TypeForm[T]) -> TypeIs[T]: ...
+def check_value_is(value: Any, types: TypeForm[_T]) -> TypeIs[_T]: ...
 @overload
-def check_value_is[T](value: Any, types: type[T]) -> TypeIs[T]: ...
+def check_value_is(value: Any, types: type[_T]) -> TypeIs[_T]: ...
 @overload
 def check_value_is(value: Any, types: str | Sequence[type | str] | UnionType | TypeAliasType) -> bool: ...
 @overload
@@ -628,7 +627,7 @@ def check_value_is(value: Any, types):
     ```
     """
     from .type_helpers import get_origin, get_args, getattr_raw
-    from .base_clses import _empty
+    _empty = inspect.Parameter.empty
 
     if _save_isinstance(
         types,
@@ -791,9 +790,10 @@ def check_value_is(value: Any, types):
                     return _check_qualname_eq_without_main(vt.__qualname__, types.__qualname__)
             return False
 
+_TT = TypeVar("_TT", bound=type)
 
 @overload
-def check_type_is[T: type](sub_cls: Any, super_cls: T) -> TypeIs[T]: ...
+def check_type_is(sub_cls: Any, super_cls: _TT) -> TypeIs[_TT]: ...
 @overload
 def check_type_is(sub_cls: Any, super_cls: Any | Sequence[Any]) -> bool: ...
 @no_type_check
@@ -854,132 +854,3 @@ def check_type_is(sub_cls, super_cls):
 
 
 __all__ = ["check_value_is", "check_type_is", "get_type_from_str"]
-
-
-if __name__ == "__main__":
-    from .type_helpers import Comparable, get_cls_name
-
-    def check(v1, v2, mode: Literal["check_val", "check_super"], expected: bool):
-        if mode == "check_val":
-            result = check_value_is(v1, v2)
-        elif mode == "check_super":
-            result = check_type_is(v1, v2)
-        else:
-            raise ValueError(f"Invalid mode: {mode}.")
-        func_name = "check_value_is" if mode == "check_val" else "check_type_is"
-        v1_name = (
-            get_cls_name(v1, with_generic=True) if mode == "check_type_is" else str(v1)
-        )
-        v2_name = get_cls_name(v2, with_generic=True)
-        if not result == expected:
-            _logger.warning(
-                f"Failed: {func_name}({v1_name}, {v2_name}) = {result}, expected: {expected}"
-            )
-        else:
-            _logger.info(f"Success: {func_name}({v1_name}, {v2_name}) = {result}")
-
-    def check_basic():
-        from .type_helpers import BasicType
-
-        check(1, BasicType, "check_val", True)
-        check("str", BasicType, "check_super", True)
-        check(None, BasicType, "check_val", True)
-        check(str|None, str|int|None, "check_super", True)
-        check(Literal['1'], str|None, "check_super", True)
-        check(Literal['1'], int|None, "check_super", False)
-        check(str, Literal['1'],"check_super", False)
-        check(str, Annotated[Literal['1'], 'hello'],"check_super", False)
-        
-        type A = Literal['1', '2']  # type: ignore
-        check(A, Literal['1', '2'], "check_super", True)
-        check(A, A|int, "check_super", True)
-        
-        data = {'1': 1, 2: 2}
-        check(data, dict[str|int, int], "check_val", True)
-        check(data, dict[str, int], "check_val", False)
-        check(data, dict[int, int], "check_val", False)
-
-    def check_protocol():
-        print("check_protocol...")
-
-        class A:
-            def __eq__(self, __other) -> bool:
-                return True
-
-            def __lt__(self, __other) -> bool:
-                return True
-
-        a = A()
-        check(A, Comparable, "check_super", True)
-        check(a, Comparable, "check_val", True)
-        check(a, A, "check_val", True)
-        check(Comparable, A, "check_super", False)
-
-    def check_callable():
-        print("check_callable...")
-
-        check(Callable[[int], int], Callable, "check_super", True)
-        check(Callable[..., int], Callable, "check_super", True)
-        check(
-            Callable[[str], int], Callable[[str | int], int | str], "check_super", True
-        )
-        check(Callable[[str], int], Callable[[int], int | str], "check_super", False)
-
-        def a(x: int) -> int: ...
-        def b(x: int) -> str: ...
-
-        check(a, Callable[[int], int], "check_val", True)
-        check(b, Callable[[int], int], "check_val", False)
-        check(b, Callable[..., str], "check_val", True)
-        check(b, Callable[..., int], "check_val", False)
-
-    def check_literal():
-        print("check_literal...")
-
-        type A = Literal["a"]  # type: ignore
-
-        check(Literal["a"], str, "check_super", True)
-        check(Literal["a", "b"], A, "check_super", False)
-        check(A, Literal["a", "b"], "check_super", True)
-        check(A, str, "check_super", True)
-
-        check("abc", 'Literal["abc", 1]', "check_val", True)
-        check("abc", "Literal[1]", "check_val", False)
-
-    def check_generics():
-        from pydantic import BaseModel
-
-        print("check_generics...")
-
-        check((1, 2), tuple[int, ...], "check_val", True)
-        check((1, 2), tuple[int], "check_val", False)
-        check({"a": 1, "b": 2}, dict[str, int], "check_val", True)
-
-        check(list[int], BaseModel, "check_super", False)
-        check(list[int], list, "check_super", True)
-        check(list, list[int], "check_super", False)
-        check("list[int|None]", "list[int]", "check_super", False)
-        check("list[int]", "list[int|None]", "check_super", True)
-
-        T = TypeVar("T")
-        S = TypeVar("S", bound=str)
-        check(T, T, "check_super", True)
-        check(S, T, "check_super", True)
-        check(T, S, "check_super", False)
-        check(type[int], type, "check_super", True)
-        check(type, type[int], "check_super", False)
-        check(type[S], type[T], "check_super", True)  # type: ignore
-        check(type[T], type[S], "check_super", False)  # type: ignore
-
-    def check_wrapped():
-        check(ClassVar[int], int, "check_super", True)
-        check(Final[int], int, "check_super", True)
-        check(int, Final[int], "check_super", True)
-        check(int, ClassVar[int], "check_super", True)
-
-    check_basic()
-    # check_protocol()
-    # check_callable()
-    # check_literal()
-    # check_generics()
-    # check_wrapped()

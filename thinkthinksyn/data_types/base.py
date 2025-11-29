@@ -1,7 +1,11 @@
-from typing import TypedDict, Any, TypeAlias, Literal, Union, TYPE_CHECKING
+from typing import TypedDict, Any, TypeAlias, Literal, Union, TYPE_CHECKING, Generic, TypeVar
 
-class AIInput(TypedDict, total=False):
-    model_filter: str|None
+from ..common_utils.data_structs.condition import BaseCondition
+
+class _AIInputBase(TypedDict): ...
+
+class _AIInput(_AIInputBase, total=False):
+    model_filter: str|BaseCondition|None
     '''
     Filter for selecting a suitable model to do inference.
     e.g. `name == Qwen/Qwen3-Omni-30B-A3B-Instruct`.
@@ -30,10 +34,58 @@ class AIInput(TypedDict, total=False):
     Extra parameters for the AI service(if any).
     Any unknown parameters passed in the body will be packed into `extra_params` automatically.
     '''
+    
+if TYPE_CHECKING:
+    class AIInput(_AIInput, extra_items=Any): ...
+else:
+    AIInput = _AIInput
 
-class AIOutput[IT: AIInput](TypedDict):
-    input: IT
+_T = TypeVar('_T')
+_ContainT = TypeVar('_ContainT')
+_IT = TypeVar('_IT', bound=_AIInputBase)
+
+class AIOutput(Generic[_IT], TypedDict, total=False):
+    input: _IT
     '''receipt of the final input.'''
+
+class ConditionProxy(Generic[_T, _ContainT]):
+    def __init__(self, name: str):
+        self.name = name
+        
+    def __eq__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '=', other)
+
+    def __ne__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '!=', other)
+    
+    def __lt__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '<', other)
+    
+    def __le__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '<=', other)
+    
+    def __gt__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '>', other)
+    
+    def __ge__(self, other: _T|BaseCondition) -> BaseCondition:
+        if isinstance(other, BaseCondition):
+            other = other.value
+        return BaseCondition(self.name, '>=', other)
+    
+    def __contains__(self, item: _ContainT|BaseCondition) -> BaseCondition:
+        if isinstance(item, BaseCondition):
+            item = item.value
+        return BaseCondition(self.name, 'in', item)
 
 JsonValType: TypeAlias = Literal['string', 'number', 'integer', 'boolean', 'array', 'object', 'function', 'null']
 '''Type of the value in json schema'''
@@ -125,9 +177,12 @@ def tidy_json_schema(schema: dict)->JsonSchema:
     
     return schema  # type: ignore
 
+
+
 __all__ = [
     'AIInput', 
     'AIOutput',
+    'ConditionProxy',
     'JsonValType',
     'JsonSchema',
     'tidy_json_schema',

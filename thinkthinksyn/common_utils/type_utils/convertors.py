@@ -1,9 +1,3 @@
-if __name__ == "__main__":  # for debugging
-    import os, sys
-    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "..", ".."))
-    sys.path.append(_proj_path)
-    __package__ = "utils.common.type_utils"
-
 import re
 import json
 import base64
@@ -16,7 +10,8 @@ from dataclasses import asdict as datacls_asdict
 from typing_extensions import TypeForm
 from types import GenericAlias, UnionType
 from typing import (Any, Sequence, TypeAlias, overload, no_type_check, Iterable, 
-                    Literal, TYPE_CHECKING, get_origin as tp_get_origin, Annotated, Union)
+                    Literal, TYPE_CHECKING, get_origin as tp_get_origin, Annotated, Union,
+                    TypeVar)
 from typing import (
     _GenericAlias, # type: ignore
     _LiteralGenericAlias,  # type: ignore
@@ -32,6 +27,8 @@ SerializableType: TypeAlias = BasicType | date | datetime | BaseModelType
 """Serializable type, including basic types and pydantic BaseModel"""
 
 __serializable_types__: dict[str, bool] = dict()
+__pydantic_type_adapters__ = dict()
+"""{type_name, adapter}"""
 
 _iso_time_regex = re.compile(r"^\d{4}-\d{2}-\d{2}[T\s]\d{2}:\d{2}:\d{2}.\d{3,}$")
 _iso_date_regex = re.compile(r"^\d{4}-\d{2}-\d{2}$")
@@ -157,16 +154,15 @@ def serialize(
     data = recursive_dump_to_basic_types(val, bytes_to_b64=bytes_to_b64)
     return json.dumps(data, ensure_ascii=False)
 
+_T = TypeVar('_T')
+_TAT = TypeVar('_TAT', bound=TypeAliasType)
 
-__pydantic_type_adapters__ = dict()
-"""{type_name, adapter}"""
-
 @overload
-def get_pydantic_type_adapter[T](t: TypeForm[T]) -> TypeAdapter[T]: ...
+def get_pydantic_type_adapter(t: TypeForm[_T]) -> TypeAdapter[_T]: ...
 @overload
-def get_pydantic_type_adapter[T](t: type[T]) -> TypeAdapter[T]: ...
+def get_pydantic_type_adapter(t: type[_T]) -> TypeAdapter[_T]: ...
 @overload
-def get_pydantic_type_adapter[T: TypeAliasType](t: T) -> TypeAdapter[T]: ...
+def get_pydantic_type_adapter(t: _TAT) -> TypeAdapter[_TAT]: ...
 @overload
 def get_pydantic_type_adapter(t: str) -> TypeAdapter: ...
 
@@ -218,11 +214,11 @@ def _get_num_from_text(s: str, raise_error: bool = False):
     return None
 
 @overload
-def deserialize[T](val: str, target_type: type[T]) -> T: ...    # not using `:SerializableType` to support some special serializable types
+def deserialize(val: str, target_type: type[_T]) -> _T: ...    # not using `:SerializableType` to support some special serializable types
 @overload
-def deserialize[T](val: str, target_type: type[T], allow_none: Literal[False]=False) -> T: ...    # not using `:SerializableType` to support some special serializable types
+def deserialize(val: str, target_type: type[_T], allow_none: Literal[False]=False) -> _T: ...    # not using `:SerializableType` to support some special serializable types
 @overload
-def deserialize[T](val: str, target_type: type[T], allow_none: Literal[True]=True) -> T|None: ...    # not using `:SerializableType` to support some special serializable types
+def deserialize(val: str, target_type: type[_T], allow_none: Literal[True]=True) -> _T|None: ...    # not using `:SerializableType` to support some special serializable types
 @overload
 def deserialize(val: str, target_type: str) -> SerializableType: ...
 @overload
@@ -368,15 +364,17 @@ def deserialize(val: str, target_type: type | str | None = None, allow_none: boo
             raise TypeError(f"Cannot deserialize string `{origin_val}` to {target_type}.") from e
         raise TypeError(f"Cannot deserialize string `{origin_val}`.") from e
 
+_TB = TypeVar('_TB', bound=BasicType)
+
 @overload
-def recursive_dump_to_basic_types[T: BasicType](
-    data: T, 
+def recursive_dump_to_basic_types(
+    data: _TB, 
     ignore_err: bool=False, 
     include_non_dumpable: bool=True, 
     bytes_to_b64: bool=False,
     no_recursion_limit: bool=False,
     excepts: type|Sequence[type]|None=None,
-) -> T: ...
+) -> _TB: ...
 @overload
 def recursive_dump_to_basic_types(
     data: BaseModelType, 
@@ -396,10 +394,8 @@ def recursive_dump_to_basic_types(
     excepts: type|Sequence[type]|None=None,
 ) -> BasicType: ...
 
-
 _SHOULD_NOT_INCLUDE = object()
-MAX_RECURSIVE_DEPTH = 512
-
+_MAX_RECURSIVE_DEPTH = 512
 
 def _internal_recursive_dump_to_basic_types(
     data: Any,
@@ -414,7 +410,7 @@ def _internal_recursive_dump_to_basic_types(
 ):
     from .checking import check_value_is
     
-    if not no_recursion_limit and _recursive_depth > MAX_RECURSIVE_DEPTH:
+    if not no_recursion_limit and _recursive_depth > _MAX_RECURSIVE_DEPTH:
         return _SHOULD_NOT_INCLUDE
     
     def dump(data, _dumped_ids: set|None=None): # type: ignore
@@ -625,58 +621,3 @@ __all__ = [
     "base64_str_chunks_to_bytes",
     "get_pydantic_type_adapter"
 ]
-
-
-if __name__ == "__main__":
-    def rec_dump_test():
-        class A(BaseModel):
-            a: 'A|None' = None
-            
-        a1 = A()
-        a2 = A()
-        a1.a = a2
-        a2.a = a1
-        
-        print(recursive_dump_to_basic_types(a1))
-        
-        d = {'a': 1}
-        lst = [d, d]
-        print(recursive_dump_to_basic_types(lst))
-        
-    def adapter_test():
-        a = get_pydantic_type_adapter(float)
-        print(a.validate_python('1'))
-    
-    def deserialize_test():
-        type X = Literal['a', 'b', 'c']     # type: ignore
-        print(is_serializable(X))
-        type Y = Annotated[X, 'test']       # type: ignore
-        print(is_serializable(Y))
-        
-        def test(val, target_type=None):
-            x = deserialize(val, target_type=target_type)   # type: ignore
-            print(x, type(x))
-        
-        test('{"a": "1"}', target_type=dict)
-        test('"1.0"', target_type=int)
-        test('"1.0"', target_type=float)
-        test('"1"',)
-        
-        test('"1"', target_type=bool)
-        test('1', target_type=bool)
-        test('0', target_type=bool)
-        test('True', target_type=bool)
-        test('true', target_type=bool)
-        test('false', target_type=bool)
-        test('123.321', target_type=int)
-
-        class A(BaseModel):
-            x: int = 1
-        
-        a = A()
-        test(a.model_dump_json(), target_type=A|None)   # type: ignore
-        test('null', target_type=A|None)
-        
-    # rec_dump_test()
-    # adapter_test()
-    deserialize_test()

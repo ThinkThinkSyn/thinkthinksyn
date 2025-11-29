@@ -1,11 +1,5 @@
-if __name__ == "__main__":
-    import os, sys
-    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..', '..'))
-    sys.path.append(_proj_path)
-    __package__ = 'utils.common.data_struct.advance_collections'
-
 from enum import Enum    
-from typing import Any, Callable, no_type_check, ClassVar
+from typing import Any, Callable, no_type_check, ClassVar, TypeVar, Generic
 
 def _fuzzy_simplify(s: str):
     return s.strip().lower().replace(' ', '').replace('_', '').replace('-', '')
@@ -61,8 +55,10 @@ class CaseIgnoreDict(dict[str, Any]):
         return f"<{self.__class__.__qualname__} {super().__repr__()}>"
     
     __str__ = __repr__
-    
-class FuzzyDict[T](dict[str, T]):
+
+_T = TypeVar('_T')
+
+class FuzzyDict(Generic[_T], dict[str, _T]):
     '''
     For matching fuzzy keys, e.g. `Hello World` == `hello_world` == `helloworld`.
     Note: all keys are saved in simplified form, i.e. stripped, lower case, no space, no underscore.
@@ -250,6 +246,7 @@ class ContextDict(dict[str, Any]):
     
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
+        from ...type_utils import get_cls_annotations
         cls_annos = get_cls_annotations(self.__class__)
         for k in cls_annos:
             if k.startswith('__') and k.endswith('__'):
