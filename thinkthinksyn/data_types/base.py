@@ -1,11 +1,22 @@
 from typing import TypedDict, Any, TypeAlias, Literal, Union, TYPE_CHECKING, Generic, TypeVar
 
-from ..common_utils.data_structs.condition import BaseCondition
+from ..common_utils.data_structs.condition import BaseCondition, Condition
+
+class NodeFilterPolicy(TypedDict, total=False):
+    '''
+    Node filter policy is a dataclass for containing configs for selecting a 
+    suitable node to handle a task.
+    '''
+    condition: str|BaseCondition|Condition|None
+    '''Condition for filtering nodes, e.g. `name==...`'''
+    ignore_tier: bool
+    '''If True, even `fallback` nodes can be selected to handle this task in normal cases.
+    Default is False.'''
 
 class _AIInputBase(TypedDict): ...
 
 class _AIInput(_AIInputBase, total=False):
-    model_filter: str|BaseCondition|None
+    model_filter: str|BaseCondition|Condition|None
     '''
     Filter for selecting a suitable model to do inference.
     e.g. `name == Qwen/Qwen3-Omni-30B-A3B-Instruct`.
@@ -22,6 +33,8 @@ class _AIInput(_AIInputBase, total=False):
     Multiple conditions can be combined with `and`/`&&`/`||`/`or` operators.
     `not` operator is also supported.
     '''
+    node_filter: str|BaseCondition|Condition|NodeFilterPolicy|None
+    '''Filter for selecting a suitable node to do inference.'''
     cache: bool
     '''whether to use cached result(if any). Default is True.'''
     save_cache: bool | None
@@ -29,6 +42,10 @@ class _AIInput(_AIInputBase, total=False):
     Whether to save the cache after inference.
     If `None`, it will follow the `cache` field.
     '''
+    local_cache: bool
+    '''whether to use local cache(if any). Default is True.'''
+    save_local_cache: bool
+    '''whether to save the local cache after inference. Default is False'''
     extra_params: dict[str, Any]
     '''
     Extra parameters for the AI service(if any).
@@ -182,6 +199,7 @@ def tidy_json_schema(schema: dict)->JsonSchema:
 __all__ = [
     'AIInput', 
     'AIOutput',
+    'NodeFilterPolicy',
     'ConditionProxy',
     'JsonValType',
     'JsonSchema',

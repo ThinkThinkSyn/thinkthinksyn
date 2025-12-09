@@ -11,7 +11,7 @@ from typing_extensions import TypeForm
 from types import GenericAlias, UnionType
 from typing import (Any, Sequence, TypeAlias, overload, no_type_check, Iterable, 
                     Literal, TYPE_CHECKING, get_origin as tp_get_origin, Annotated, Union,
-                    TypeVar)
+                    TypeVar, Protocol)
 from typing import (
     _GenericAlias, # type: ignore
     _LiteralGenericAlias,  # type: ignore
@@ -23,7 +23,16 @@ from typing_extensions import TypeAliasType
 
 from .type_helpers import BasicType, BaseModelType
 
-SerializableType: TypeAlias = BasicType | date | datetime | BaseModelType
+class _CustomPydanticSerializableT1(Protocol):
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):  # type: ignore
+        ...
+class _CustomPydanticSerializableT2(Protocol):
+    @staticmethod
+    def __get_pydantic_core_schema__(source, handler):  # type: ignore
+        ...
+
+SerializableType: TypeAlias = BasicType | date | datetime | BaseModelType | _CustomPydanticSerializableT1 | _CustomPydanticSerializableT2
 """Serializable type, including basic types and pydantic BaseModel"""
 
 __serializable_types__: dict[str, bool] = dict()

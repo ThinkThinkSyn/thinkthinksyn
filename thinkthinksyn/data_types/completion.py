@@ -1,10 +1,15 @@
-from typing import Any, TypedDict, Literal, TypeAlias, Sequence
-from typing_extensions import TypeAliasType, NotRequired
+from pathlib import Path
+from typing import Any, TypedDict, Literal, TypeAlias, Sequence, get_args
+from typing_extensions import TypeAliasType, NotRequired, Required
 
+from ..common_utils.data_structs import Image, Audio, Video, PDF
 from .base import AIInput, AIOutput, JsonSchema
 from .llm_tools import LLMTool
 
 ChatMsgMediaType: TypeAlias = Literal["image", "audio", "video"]
+_ChatMsgMediaImageTypeAliases: TypeAlias = Literal["img", "image_url", 'picture', 'image_data', 'photo']
+_ChatMsgMediaAudioTypeAliases: TypeAlias = Literal["sound", "music", 'audio_url', 'voice', 'audio_data']
+_ChatMsgMediaVideoTypeAliases: TypeAlias = Literal["movie", "clip", 'video_url', 'video_data']
 
 class ChatMsgMedia(TypedDict, total=False):
     """
@@ -14,9 +19,9 @@ class ChatMsgMedia(TypedDict, total=False):
         - 1 msg can have multiple media contents, e.g. image, audio, ...
     """
 
-    type: ChatMsgMediaType
+    type: ChatMsgMediaType | _ChatMsgMediaImageTypeAliases | _ChatMsgMediaAudioTypeAliases
     """type of the media content type"""
-    content: str
+    content: str | Image | Audio | Video
     """Raw content of the media msg. It could be a URL/ file path/ base64, ...."""
     textified_content: str|None
     """
@@ -26,18 +31,74 @@ class ChatMsgMedia(TypedDict, total=False):
     This value will only be set when `get_text_content` is called. 
     WARNING: You should not pass this value directly except you know what you are doing.
     """
-
     # type specific configs
     use_audio_in_video: bool
     '''whether to use audio when extracting meaning from video.
     This field is only valid when `type` is `video`.'''
+    
+class _OpenAIFormatImageInnerT1(TypedDict):
+    url: str
+class _OpenAIFormatImageInnerT2(TypedDict):
+    image_url: str
+class _OpenAIFormatImageT1(TypedDict):
+    type: NotRequired[Literal["image"] | _ChatMsgMediaImageTypeAliases]
+    image_url: _OpenAIFormatImageInnerT1 | _OpenAIFormatImageInnerT2
+class _OpenAIFormatImageT2(TypedDict):
+    type: NotRequired[Literal["image"] | _ChatMsgMediaImageTypeAliases]
+    image: _OpenAIFormatImageInnerT1 | _OpenAIFormatImageInnerT2
+_OpenAIFormatImage: TypeAlias = _OpenAIFormatImageT1 | _OpenAIFormatImageT2
 
-ChatMsgMedias = TypeAliasType("ChatMsgMedias", dict[int, ChatMsgMedia])
+class _OpenAIFormatAudioInner(TypedDict):
+    data: str
+    format: NotRequired[Literal["wav", "mp3"]]
+class _OpenAIFormatAudioT1(TypedDict):
+    input_audio: _OpenAIFormatAudioInner
+    type: NotRequired[Literal["input_audio"] | _ChatMsgMediaAudioTypeAliases]
+class _OpenAIFormatAudioT2(TypedDict):
+    audio: _OpenAIFormatAudioInner
+    type: NotRequired[Literal["input_audio"] | _ChatMsgMediaAudioTypeAliases]
+_OpenAIFormatAudio: TypeAlias = _OpenAIFormatAudioT1 | _OpenAIFormatAudioT2
+
+class _OpenAIFormatTextT1(TypedDict):
+    type: NotRequired[Literal["text"]]
+    text: str
+class _OpenAIFormatTextT2(TypedDict):
+    type: NotRequired[Literal["text"]]
+    content: str
+_OpenAIFormatText: TypeAlias = _OpenAIFormatTextT1 | _OpenAIFormatTextT2
+
+_OpenAIFormatMedia: TypeAlias = _OpenAIFormatImage | _OpenAIFormatAudio
+_OpenAIFormatMsgContent: TypeAlias = _OpenAIFormatMedia | _OpenAIFormatText
+
+_ChatMsgMedia: TypeAlias = ChatMsgMedia | _OpenAIFormatMedia | Image | Audio | Video | PDF | str | Path
+
+ChatMsgMedias: TypeAlias = dict[int, _ChatMsgMedia]
+'''media contents included in this chat msg. Key is position index for media. {media_index: ChatMsgMedia, ...}'''
+_ChatMsgMediasList: TypeAlias = Sequence[_ChatMsgMedia]
+'''Alternative media contents included in this chat msg as a list, e.g. [{type: "image", "content": ...}, ...]'''
+
+def detect_media_type(t: str)->ChatMsgMediaType|None:
+    '''detect media type from type string, e.g. `image_url`. 
+    Return None if not recognized.'''
+    if not isinstance(t, str):
+        return None
+    t = t.lower().strip()
+    image_file_types = ('jpg', 'png', 'bmp', 'tiff', 'webp')
+    audio_file_types = ("wav", "mp3", "aac", "flac", "opus", "ogg", "m4a", "wma")
+    video_file_types = ("mp4", "gif")
+    
+    if t in get_args(_ChatMsgMediaImageTypeAliases) or ('image' in t) or (t in image_file_types):
+        return "image"
+    elif t in get_args(_ChatMsgMediaAudioTypeAliases) or ('audio' in t) or (t in audio_file_types):
+        return "audio"
+    elif t in get_args(_ChatMsgMediaVideoTypeAliases) or ('video' in t) or (t in video_file_types):
+        return "video"
+    return None
 
 class ChatMsg(TypedDict, total=False):
     """Single chat msg with no role."""
 
-    content: str
+    content: Required[str]
     """
     Raw content of the chat msg.
     You can include media label within text content to identify the location,
@@ -78,17 +139,18 @@ class ChatMsg(TypedDict, total=False):
     Whether passing media contents directly to multi-modal model(if available).
     This field will override `LLMInput.multi_modal` field.
     """
-    medias: ChatMsgMedias
+    medias: _ChatMsgMedia | ChatMsgMedias | _ChatMsgMediasList
     '''media contents included in this chat msg. Key is media index.'''
 
 class ChatMsgWithRole(ChatMsg):
-    role: str
-
-SingleLogitBias = TypeAliasType("SingleLogitBias", tuple[str|int, float|bool])
-'''
-Single logit bias, e.g. ("token", 0.5) or ("token", True) for enable/disable token.
-For number case, the range is [-100, 100] 
-'''
+    role: NotRequired[str]
+    '''role of the chat msg, e.g. `user`, `assistant`, `system`, ...
+    If not given, `user` will be used as default role.
+    '''
+    
+class _OpenAIChatMsgWithRole(TypedDict):
+    role: Literal["system", "user", "assistant"] | str
+    content: str | _OpenAIFormatMsgContent | Sequence[_OpenAIFormatMsgContent]
 
 class CompletionConfig(TypedDict, total=False):
     """
@@ -145,15 +207,18 @@ class CompletionConfig(TypedDict, total=False):
     ignore_eos: bool|None
     '''ignore end of stream token and continue generating.
     WARN: this may result in infinite generation, so use with caution.'''
-    logit_bias: list[SingleLogitBias]|None
+    logit_bias: Sequence[tuple[str, float|bool]]| dict[str, float|bool] | None
     """
     Modify the likelihood of a token appearing in the generated text completion. 
-    For example, use "logit_bias": [[15043,1.0]] to increase the likelihood of the token 'Hello', 
-    or "logit_bias": [[15043,-1.0]] to decrease its likelihood. Setting the value to false, 
-    "logit_bias": [[15043,false]] ensures that the token Hello is never produced. 
+    For example, use "logit_bias": [['Hello',1.0]] to increase the likelihood of the token 'Hello', 
+    or "logit_bias": [['Hello',-1.0]] to decrease its likelihood. 
+    
+    By setting the value to false, e.g `[['Hello', False]]` ensures that the token is never produced. 
     The tokens can also be represented as strings, e.g. [["Hello, World!",-0.5]] will reduce the
     likelihood of all the individual tokens that represent the string Hello, World!, 
     just like the presence_penalty does. 
+    
+    NOTE: the second value's range is [-100, 100] when it is float.
     """
 
 ToolChoiceMode: TypeAlias = Literal["none", "auto", "required", "required_one"]
@@ -192,7 +257,7 @@ class ToolConfig(TypedDict, total=False):
         - `required_one`: must choose 1 tool.
     NOTE: this field will be ignored if `tool_force_chosen` is set.
     """
-    tool_force_chosen: str | list[str] | None
+    tool_force_chosen: str | Sequence[str] | None
     """
     Manually set the final chosen tool. It should be a list of tool names or a single tool name.
     Your manual choice should be in the list of `tools` in `LLMInput`.
@@ -226,7 +291,6 @@ class ToolInfo(TypedDict):
     Information about a LLM tool, for sending to model. Compatible with OpenAI's `tools` field.
     You should fill detailed information to get better result in calling. 
     '''
-    
     name: str
     '''name of the tool. This is an important field for meaningful selection.'''
     description: NotRequired[str|None]
@@ -276,10 +340,18 @@ class CompletionInput(AIInput, total=False):
     the system prompt to pass to the model. 
     You can still manually add system prompt in `history` by `system` role.
     '''
-    messages: list[ChatMsgWithRole]
+    with_model_system_prompt: bool
+    '''
+    When `system_prompt` is None, whether to use model's default system prompt.
+    Default to be True.
+    '''
+    messages: Sequence[ChatMsgWithRole | _OpenAIChatMsgWithRole]
     '''
     The chat messages. It is used for inputting the full chat history, e.g.
     ```[{"role": "user", "content": "Hello!"}, ...]```
+    
+    `history` is an alias of `messages`. 
+    
     NOTE: If your prompt has been included in this field, then no need to enter in field `prompt` anymore.
     '''
     send_prompt_directly: bool
@@ -322,7 +394,7 @@ class CompletionInput(AIInput, total=False):
     Tool setting fields in OpenAI's format(e.g. tool_choice, ...) when be put to this config automatically
     if you don't specify them in `tool_config` field.
     '''
-    json_schema: dict[str, Any]|None
+    json_schema: JsonSchema|dict[str, Any]|None
     '''
     Json schema restricting the model to reply.
     This is only available when there is any json-schema available nodes, e.g. llama.cpp.
@@ -403,10 +475,9 @@ __all__ = [
     'ChatMsgMediaType',
     'ChatMsgMedia',
     'ChatMsgMedias',
+    'detect_media_type',
     'ChatMsg',
     'ChatMsgWithRole',
-    
-    'SingleLogitBias',
     'CompletionConfig',
     
     'ToolChoiceMode',

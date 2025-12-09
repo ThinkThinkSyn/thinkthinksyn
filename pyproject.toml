@@ -8,22 +8,27 @@ version = "0.0.1"
 [project]
 name = "thinkthinksyn"
 dependencies = [
-  "httpx",
-  "sympy",
   "numpy",
   "pydantic",
+  "sympy",
   "aiossechat",
   "colorlog",
   "attrs",
   "typeguard",
   "typing>=3.7",
   "typing-extensions>=4.14",
+  "pillow",
+  "psutil",
+  "aioftp",
+  "aiohttp",
+  "pydub"
 ]
-
-[project]
 requires-python = ">= 3.11"
-
-[project]
 authors = [
   {name = "ThinkThinkSyn", email = "contact@thinkthinksyn.com"},
+]
+
+[project.optional-dependencies]
+full = [
+  "noisereduce"
 ]

@@ -7,3 +7,9 @@ attrs
 typeguard
 typing>=3.7
 typing-extensions>=4.14
+pillow
+psutil
+aioftp
+aiohttp
+pydub
+json_repair
