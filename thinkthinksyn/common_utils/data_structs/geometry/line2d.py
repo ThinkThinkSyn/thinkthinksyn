@@ -15,11 +15,11 @@ class Line2D(tuple[Point2D, Point2D]):
     def __new__(cls, *args):  # type: ignore
         if len(args)==1:
             args = args[0]
-        assert len(args)==2, f'Expect 2 elements for Line2D, but got {len(args)} elements.'
+        assert len(args)==2, f"Expect 2 elements for Line2D, but got {len(args)} elements."
         proper_args = list(args)
         for i in range(2):
             if not isinstance(proper_args[i], Point2D):
-                assert len(proper_args[i])==2, f'Expect 2 elements for Point2D, but got {len(proper_args[i])} elements.'
+                assert len(proper_args[i])==2, f"Expect 2 elements for Point2D, but got {len(proper_args[i])} elements."
                 proper_args[i] = Point2D(proper_args[i])
         return super().__new__(cls, proper_args)  # type: ignore
     
@@ -31,7 +31,7 @@ class Line2D(tuple[Point2D, Point2D]):
             if isinstance(data, (list, tuple)):
                 if len(data)==2:
                     return cls(data)    # type: ignore
-                raise ValueError(f'Expect 2 elements in the list or tuple, but got {len(data)} elements.')
+                raise ValueError(f"Expect 2 elements in the list or tuple, but got {len(data)} elements.")
             if isinstance(data, dict):
                 if 'start' in data and 'end' in data:
                     return cls(data['start'], data['end'])
@@ -164,14 +164,14 @@ class Line2D(tuple[Point2D, Point2D]):
     
     def __repr__(self):
         cls = self.__class__
-        return f'{cls.__qualname__.split('.')[-1]}({self.start}, {self.end})'
+        return f"{cls.__qualname__.split('.')[-1]}({self.start}, {self.end})"
     
     def __eq__(self, a):
         cls = self.__class__
         if isinstance(a, cls):
             return self.start==a.start and self.end==a.end
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             assert isinstance(a[0], (tuple, list)) and len(a[0])==2, f"Expect 2 elements for comparing with the line's first point, but got {len(a[0])} elements."
             assert isinstance(a[1], (tuple, list)) and len(a[1])==2, f"Expect 2 elements for comparing with the line's first point, but got {len(a[1])} elements."
             return self.start==a[0] and self.end==a[1]
@@ -180,8 +180,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __add__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start+a[0], self.end+a[1]))
         return cls((self.start+a, self.end+a))
@@ -189,8 +189,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __sub__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start-a[0], self.end-a[1]))
         return cls((self.start-a, self.end-a))
@@ -198,8 +198,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __mul__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start*a[0], self.end*a[1]))
         return cls((self.start*a, self.end*a))
@@ -207,8 +207,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __truediv__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start/a[0], self.end/a[1]))
         return cls((self.start/a, self.end/a))
@@ -216,8 +216,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __floordiv__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start//a[0], self.end//a[1]))
         return cls((self.start//a, self.end//a))
@@ -225,8 +225,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __mod__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start%a[0], self.end%a[1]))
         return cls((self.start%a, self.end%a))
@@ -234,8 +234,8 @@ class Line2D(tuple[Point2D, Point2D]):
     def __pow__(self, a):
         cls = self.__class__
         if isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
-            assert len(a[0]) == len(a[1]), f'Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
+            assert len(a[0]) == len(a[1]), f"Expect 2 same elements for each point, but got {len(a[0])} elements for the first point and {len(a[1])} elements for the second point."
             assert len(a[0]) <=2, f'Expect 1 or 2 elements for each point(can be a point or line), but got {len(a[0])} elements for point.'
             return cls((self.start**a[0], self.end**a[1]))
         return cls((self.start**a, self.end**a))

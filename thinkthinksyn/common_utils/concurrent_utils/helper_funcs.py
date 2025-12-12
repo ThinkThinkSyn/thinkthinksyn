@@ -252,7 +252,7 @@ async def collect_async_stream_output(async_iterable: AsyncIterable[_R]|AsyncGen
         results.append(result)
     return results
 
-_on_program_exit_listeners: list[tuple[Callable, tuple, dict]] = get_or_create_global_value('__on_program_exit_listeners__', list)  # type: ignore
+_on_program_exit_listeners: list[tuple[Callable, tuple, dict]] = []  # type: ignore
 
 @overload
 def add_on_program_exit_listener(func: Callable[_P, Any], *args: _P.args, **kwargs: _P.kwargs):...

@@ -5,8 +5,8 @@ Note: `setter` is not supported for class property, due to the limitation of pyt
 
 from collections.abc import Callable
 from functools import update_wrapper
-from typing import (Type, override, Generic, TypeVar, overload, Union, Self, Concatenate, ParamSpec)
-
+from typing import (Type, Generic, TypeVar, overload, Self, Concatenate, ParamSpec)
+from typing_extensions import override
 
 class _class_property(property): # still inherit from property(but it works nothing for this class), cuz it makes `isinstance(..., property)` True
     
@@ -187,7 +187,7 @@ def singleton(cls: _ClsT)->_ClsT:   # type: ignore
     Note: `singleton` is available for `attrs` class, but not available for pydantic BaseModel.
     '''
 @overload
-def singleton(cross_module_singleton: bool=True)->Callable[[ClsT], ClsT]:   # type: ignore
+def singleton(cross_module_singleton: bool=True)->Callable[[_ClsT], _ClsT]:   # type: ignore
     '''
     The singleton class decorator.
     Singleton class is a class that only has one instance. 

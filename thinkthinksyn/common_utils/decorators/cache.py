@@ -4,7 +4,8 @@
 from weakref import ref
 from _thread import RLock
 from functools import lru_cache, wraps, update_wrapper, _CacheInfo, _make_key
-from typing import Literal, overload, Callable, Hashable, TYPE_CHECKING, override, no_type_check, TypeAlias
+from typing import (Literal, overload, Callable, Hashable, TYPE_CHECKING, no_type_check, TypeAlias, TypeVar)
+from typing_extensions import override
 
 if TYPE_CHECKING:
     from .classproperty import class_property
@@ -224,11 +225,13 @@ class _CacheAsyncFunc(_CachedFunc):
 
 _CacheFuncTypes: TypeAlias = "Callable|property|class_property|classmethod|staticmethod"
 _AsyncCacheFuncTypes: TypeAlias = "AsyncFuncType|property|class_property|classmethod|staticmethod"
+_F = TypeVar('_F', bound=_CacheFuncTypes)
+_AF = TypeVar('_AF', bound=_AsyncCacheFuncTypes)
 
 @overload
-def cache[F: _CacheFuncTypes](func: F, /) -> F: ...
+def cache(func: _F, /) -> _F: ...
 @overload
-def cache[F: _CacheFuncTypes](*, maxsize: int = 128, typed: bool = False) -> Callable[[F], F]: ...
+def cache(*, maxsize: int = 128, typed: bool = False) -> Callable[[_F], _F]: ...
 
 def cache(*args, **kwargs):  # type: ignore
     """
@@ -298,9 +301,9 @@ def cache(*args, **kwargs):  # type: ignore
 
 
 @overload
-def async_cache[F: _AsyncCacheFuncTypes](func: F, /) -> F: ...
+def async_cache(func: _AF, /) -> _AF: ...
 @overload
-def async_cache[F: _AsyncCacheFuncTypes](*, maxsize: int = 128, typed: bool = False) -> Callable[[F], F]: ...
+def async_cache(*, maxsize: int = 128, typed: bool = False) -> Callable[[_AF], _AF]: ...
 
 def async_cache(*args, **kwargs):  # type: ignore
     """

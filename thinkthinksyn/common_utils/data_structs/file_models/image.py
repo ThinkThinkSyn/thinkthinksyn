@@ -1,34 +1,28 @@
 import os
-import re
 import base64
-import aioftp
 import logging
-import hashlib
 import requests
-import aiohttp
 import numpy as np
 
 from io import BytesIO
 from pathlib import Path
-from PIL import Image as PILImage, UnidentifiedImageError
+from PIL import Image as PILImage
 from pydantic_core import core_schema
-from typing import cast, Self, override, Literal, TYPE_CHECKING, Coroutine, TypeAlias
+from typing import cast, Self, Literal, TYPE_CHECKING, Coroutine, TypeAlias
+from typing_extensions import override
 
 from ...decorators import cache
 from ...type_utils import bytes_to_base64
 from ...concurrent_utils import run_any_func, is_async_callable
 
 from ..geometry import Box2D, Point2D
+from .loader import save_get, AcceptableFileSource
+from ._utils import _hash_md5, _try_get_from_dict, _get_media_json_schema, _dump_media_dict
 
 CommonImgFormat: TypeAlias = Literal['jpg', 'png', 'gif', 'bmp', 'tiff', 'webp']
 ImageColorMode: TypeAlias = Literal['rgb', 'rgba', 'l', 'p', '1', 'cmyk']
 
 _logger = logging.getLogger(__name__)
-
-def _hash_md5(data: bytes)->str:
-    m = hashlib.md5()
-    m.update(data)
-    return m.hexdigest()
 
 def _tidy_color_mode(mode: ImageColorMode)->str:
     return mode.upper() 
@@ -38,76 +32,8 @@ def _tidy_format(format: CommonImgFormat)->str:
         return 'jpeg'
     return format.lower() 
 
-async def _get_image(img: str | bytes | Path | None):  # type: ignore
-    if not img:
-        return None
-    if isinstance(img, bytes):
-        return PILImage.open(BytesIO(img))
-    elif isinstance(img, PILImage.Image):
-        return img
-    elif isinstance(img, str):
-        possible_url_starts = ('http', 'ftp', 'ftps', 'sftp')
-        stripped = img.strip()
-        starts_with_url = any(stripped.startswith(prefix) for prefix in possible_url_starts)
-        if starts_with_url:
-            if stripped.startswith(('ftp://', 'ftps://', 'sftp://')):
-                async with aioftp.Client.context(stripped) as client:
-                    data = b''
-                    path = stripped.split('/', 3)[-1]
-                    async for block in (await client.download_stream(path)).iter_by_block():
-                        data += block
-                    return PILImage.open(BytesIO(data))
-            else:
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(img) as response:
-                        if response.status != 200:
-                            raise ValueError(f"Failed to get image from url: `{img}`.")
-                        data = await response.read()
-                        return PILImage.open(BytesIO(data))
-                    
-        b64_format_match = re.match(r"^data:((?:\w+\/(?:(?!;).)+)?)((?:;[\w\W]*?[^;])*),(.+)$", img)   
-        image_format = None
-        
-        if not b64_format_match and (len(img) < 256 or (len(img) < 1024 and ('/' in img or '\\' in img))):
-            # If the string is too short, it is likely a path.
-            if os.path.exists(img):
-                with open(img, "rb") as f:
-                    data = f.read()
-                base64_data = bytes_to_base64(data)
-                try:
-                    return PILImage.open(BytesIO(data))
-                except UnidentifiedImageError:
-                    if len(data) < 256:
-                        raise ValueError("Invalid image data. Got: ", data)
-                    raise ValueError("Invalid image data.")
-        
-        if b64_format_match:
-            image_format = b64_format_match.group(1).split('/')[1]
-            img = b64_format_match.group(3)
-        data = base64.b64decode(img)    # type: ignore
-        try:
-            pil_image = PILImage.open(BytesIO(data))
-            if image_format and not pil_image.format:
-                pil_image.format = _tidy_format(image_format).upper().strip()   # type: ignore
-            return pil_image
-        except UnidentifiedImageError:
-            if len(data) < 256:
-                raise ValueError("Invalid image data. Got: ", data)
-            raise ValueError("Invalid image data.")
-
-    elif isinstance(img, Path):
-        with open(img, "rb") as f:
-            data = f.read()
-            base64_data = bytes_to_base64(data)
-            try:
-                return PILImage.open(BytesIO(data))
-            except UnidentifiedImageError:
-                raise ValueError(f'Invalid image data from path: {img}. It may not be a valid image file.')
-    else:
-        raise ValueError("Unexpected image type. It should be a url, base64 string or bytes.")
-
 def _crop_img(
-    img: bytes | str | Path | np.ndarray | PILImage.Image,
+    img: AcceptableFileSource | np.ndarray | PILImage.Image,
     region: Box2D,
     return_mode: Literal["bytes", "base64", "image"] = "image",
     color_mode: Literal["unchange", "L", "RGB", "RGBA"] = "unchange",
@@ -146,7 +72,7 @@ def _crop_img(
         return base64.b64encode(buf.getvalue()).decode("ascii")
     else:
         return img_obj
-    
+
 class Image(PILImage.Image):
     '''Advanced Image class with pydantic support'''
     
@@ -154,13 +80,9 @@ class Image(PILImage.Image):
     def __get_pydantic_core_schema__(cls, source, handler):
         def validator(data):
             if isinstance(data, dict):
-                if ('img' in data) or ('image' in data) or ('source' in data) or ('url' in data):
-                    img = data.get('img') or data.get('image') or data.get('source') or data.get('url')
-                    if img and isinstance(img, (str, bytes, Path)):
-                        data = img # continue to the next step
-                        
-            if isinstance(data, (str, bytes, Path)):
-                data = cls.Load(data)
+                data = _try_get_from_dict(data, 'data', 'content', 'img', 'image', 'source', 'url')
+            if not isinstance(data, cls):
+                data = cls.Load(data)   # type: ignore
             return data
         
         def serializer(img: 'Image'):
@@ -168,7 +90,7 @@ class Image(PILImage.Image):
                 format = 'jpg'
             else:
                 format = 'png'
-            return img.to_base64(format=format)
+            return _dump_media_dict(img.to_base64(format=format), cls)
 
         validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
         serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer)
@@ -177,6 +99,10 @@ class Image(PILImage.Image):
             python_schema=validate_schema,
             serialization=serialize_schema
         )
+        
+    @classmethod
+    def __get_pydantic_json_schema__(cls, cs, handler):
+        return _get_media_json_schema(cls)
     
     @property
     def pixel_count(self)->int:
@@ -402,40 +328,22 @@ class Image(PILImage.Image):
             raise ValueError(f'Invalid method: {method}')
     
     @classmethod
-    def Load(cls, img: str|bytes|Path|PILImage.Image, /)->Self:
+    def Load(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
         '''load image from file bytes, path or url'''
-        if isinstance(img, PILImage.Image):
-            if isinstance(img, cls):
-                return img
-            img_data = img
-        else:
-            img_data = run_any_func(_get_image, img)    
-        if img_data is None:
-            raise ValueError('Invalid image data')
-        if not img_data._im:
-            original_format = getattr(img_data, 'format', None)
-            img_data = img_data.convert(img_data.mode)  # this is required for some image types, e.g. WEBP
-            if not img_data.format and original_format:
-                img_data.format = _tidy_format(original_format).upper()
-        return cls.CastPILImage(img_data)
+        if not isinstance(img, cls):
+            if not isinstance(img, PILImage.Image):
+                img = run_any_func(save_get, img)
+            img = cls.CastPILImage(PILImage.open(img))  # type: ignore
+        return img
     
     @classmethod
-    async def ALoad(cls, img: str|bytes|Path|PILImage.Image, /)->Self:
+    async def ALoad(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
         '''asynchronously load image from file bytes, path or url'''
-        if isinstance(img, PILImage.Image):
-            if isinstance(img, cls):
-                return img
-            img_data = img
-        else:
-            img_data = await _get_image(img)    
-        if img_data is None:
-            raise ValueError('Invalid image data')
-        if not img_data._im:
-            original_format = getattr(img_data, 'format', None)
-            img_data = img_data.convert(img_data.mode)  # this is required for some image types, e.g. WEBP
-            if not img_data.format and original_format:
-                img_data.format = _tidy_format(original_format).upper()
-        return cls.CastPILImage(img_data)
+        if not isinstance(img, cls):
+            if not isinstance(img, PILImage.Image):
+                img = await save_get(img)
+            img = cls.CastPILImage(PILImage.open(img))  # type: ignore
+        return img
     
     @classmethod
     def New(

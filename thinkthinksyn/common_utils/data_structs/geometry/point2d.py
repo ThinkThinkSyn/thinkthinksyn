@@ -61,7 +61,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x+a.x, self.y+a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x+a[0], self.y+a[1]))
         return cls((self.x+a, self.y+a))
     
@@ -70,7 +70,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x-a.x, self.y-a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x-a[0], self.y-a[1]))
         return cls((self.x-a, self.y-a))
     
@@ -79,7 +79,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x*a.x, self.y*a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x*a[0], self.y*a[1]))
         return cls((self.x*a, self.y*a))
     
@@ -88,7 +88,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x/a.x, self.y/a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x/a[0], self.y/a[1]))
         return cls((self.x/a, self.y/a))
     
@@ -97,7 +97,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x//a.x, self.y//a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x//a[0], self.y//a[1]))
         return cls((self.x//a, self.y//a))
     
@@ -106,7 +106,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x%a.x, self.y%a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x%a[0], self.y%a[1]))
         return cls((self.x%a, self.y%a))
     
@@ -115,7 +115,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return cls((self.x**a.x, self.y**a.y))
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return cls((self.x**a[0], self.y**a[1]))
         return cls((self.x**a, self.y**a))
     
@@ -131,7 +131,7 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return self.x==a.x and self.y==a.y
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return self.x==a[0] and self.y==a[1]
         return False
     
@@ -140,13 +140,13 @@ class Point2D(tuple[float, float]):
         if isinstance(a, cls):
             return self.x<a.x and self.y<a.y
         elif isinstance(a, (tuple, list)):
-            assert len(a)==2, f'Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements.'
+            assert len(a)==2, f"Expect 2 elements for {cls.__qualname__.split('.')[-1]}, but got {len(a)} elements."
             return self.x<a[0] and self.y<a[1]
         return False
     
     def __repr__(self):
         cls = self.__class__
-        return f'{cls.__qualname__.split('.')[-1]}({self.x}, {self.y})'
+        return f"{cls.__qualname__.split('.')[-1]}({self.x}, {self.y})"
 
 
 __all__ = ['Point2D']

@@ -16,7 +16,7 @@ from typing_extensions import TypeAliasType
 _T = TypeVar('_T')
 _IO = TypeVar('_IO', bound=BinaryIO)
 _Generator = TypeAliasType("_Generator", Generator[_T, None, None]|AsyncGenerator[_T, None]|AsyncIterable[_T]|Iterable[_T], type_params=(_T,))
-_AcceptableFileSource = TypeAliasType("_AcceptableFileSource", str|bytes|Path|_Generator[bytes]|_Generator[str])
+AcceptableFileSource = TypeAliasType("AcceptableFileSource", str|bytes|Path|_Generator[bytes]|_Generator[str])
 
 _DEFAULT_MAX_SIZE = 128 * 1024 * 1024  # 128 MB
 _DEFAULT_TIMEOUT = 32  # seconds
@@ -273,7 +273,7 @@ async def save_get_base64(
             return out
         if b64_string.startswith("data:"):
             b64_string = b64_string.split("base64,", 1)[1]
-        async def b64_stream():
+        async def b64_stream(): # type: ignore
             try:
                 decoded = base64.b64decode(b64_string)
                 yield decoded
@@ -367,8 +367,9 @@ async def save_get_bytes(
         "byte_data must be bytes or generator"
     if isinstance(byte_data, bytes):
         # Single bytes object
-        async def bytes_stream():
+        async def _bytes_stream():
             yield byte_data
+        bytes_stream = _bytes_stream()
     else:
         # Generator of bytes
         bytes_stream = byte_data    # type: ignore
@@ -384,7 +385,7 @@ async def save_get_bytes(
 # region all-in-one
 @overload
 async def save_get(
-    source: _AcceptableFileSource, 
+    source: AcceptableFileSource, 
     out: None=None, 
     max_size: int|None=_DEFAULT_MAX_SIZE,
     timeout: int|float|None=_DEFAULT_TIMEOUT,
@@ -397,7 +398,7 @@ async def save_get(
 
 @overload
 async def save_get(
-    source: _AcceptableFileSource,
+    source: AcceptableFileSource,
     out: _IO,
     max_size: int|None=_DEFAULT_MAX_SIZE,
     timeout: int|float|None=_DEFAULT_TIMEOUT,
@@ -409,7 +410,7 @@ async def save_get(
 ) -> _IO: ...
 
 async def save_get(
-    source: _AcceptableFileSource, 
+    source: AcceptableFileSource, 
     out: BinaryIO|None=None, 
     max_size: int|None=_DEFAULT_MAX_SIZE,
     timeout: int|float|None=_DEFAULT_TIMEOUT,
@@ -512,6 +513,7 @@ __all__ = [
     "save_get_base64", 
     "save_get_bytes",
     "save_get",
+    'AcceptableFileSource',
 ]
 
 if __name__ == "__main__":

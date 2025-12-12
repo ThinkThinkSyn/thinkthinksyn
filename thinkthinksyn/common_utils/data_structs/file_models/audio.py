@@ -1,4 +1,5 @@
-import requests
+from ._utils import _init_ffmpeg
+_init_ffmpeg()
 
 from io import BytesIO
 from pathlib import Path
@@ -6,11 +7,14 @@ from pydub import AudioSegment
 from pydantic_core import core_schema
 from pydub.silence import split_on_silence
 from pydub.utils import audioop, ratio_to_db
-from typing import cast, Self, TYPE_CHECKING, override, Generator, Coroutine, Literal, TypeAlias
+from typing import cast, Self, TYPE_CHECKING, Generator, Coroutine, Literal, TypeAlias
+from typing_extensions import override
 
-from ...type_utils import bytes_to_base64, base64_to_bytes
+from ...type_utils import bytes_to_base64
 from ...concurrent_utils import run_any_func, is_async_callable
-from .image import _hash_md5
+from .loader import save_get, AcceptableFileSource
+from ._utils import _hash_md5, _try_get_from_dict, _get_media_json_schema, _dump_media_dict
+
 
 AudioFormat: TypeAlias = Literal["wav", "mp3", "aac", "flac", "opus", "ogg", "m4a", "wma"]
 '''Supported non-stream response audio formats.'''
@@ -46,45 +50,31 @@ class Audio(AudioSegment):
     def __get_pydantic_core_schema__(cls, source, handler):
         def validator(data):
             if isinstance(data, dict):
-                if ('voice' in data) or ('sound' in data) or ('audio' in data) or ('data' in data) or ('source' in data) or ('url' in data):
-                    audio = data.get('voice', data.get('sound', data.get('audio', data.get('data', data.get('source', data.get('url'))))))
-                    if audio and isinstance(audio, (Path, str, bytes, AudioSegment)):
-                        data = audio # continue to the next step
-                elif 'format' in data or 'Format' in data:
-                    format = data.get('format', data.get('Format', None))
-                    frame_rate = data.get('frame_rate', data.get('FrameRate', None))
-                    channels = data.get('channels', data.get('Channels', 1))
-                    sample_width = data.get('sample_width', data.get('SampleWidth', 2))
-                    audio_data = data.get('data', data.get('Data', data.get('source', data.get('Source', data.get('url', data.get('URL', None))))))
+                type = _try_get_from_dict(data, 'type', 'Type')
+                if isinstance(type, str) and type.lower() != 'audio':
+                    raise ValueError(f'Invalid audio data type: {type}')
+                format = _try_get_from_dict(data, 'format', 'Format')
+                frame_rate = _try_get_from_dict(data, 'frame_rate', 'FrameRate')
+                channels = _try_get_from_dict(data, 'channels', 'Channels')
+                sample_width = _try_get_from_dict(data, 'sample_width', 'SampleWidth')
+                audio_data = _try_get_from_dict(data, 'data', 'Data', 'source', 'content', 'Source', 'url', 
+                                                'URL', 'audio', 'Audio', 'voice', 'Voice', 'sound', 'Sound')
+                
+                if not audio_data:
+                    raise ValueError('No valid audio data found')
+                
+                channels = int(channels) if channels else 1
+                sample_width = int(sample_width) if sample_width else 2
+                audio_io = run_any_func(save_get, audio_data)    # type: ignore
+                data = AudioSegment.from_file(audio_io, format=format, frame_rate=frame_rate, channels=channels, sample_width=sample_width)
                     
-                    if not frame_rate or not format or not audio_data:
-                        raise ValueError('Invalid audio data. Must provide `format`, `frame_rate`, and `data`')
-                    if isinstance(audio_data, str):
-                        if '/' in audio_data or '\\' in audio_data:
-                            if audio_data.startswith('http'):
-                                audio_data = requests.get(audio_data).content
-                            else:
-                                audio_data = Path(audio_data)
-                        else:   # assume base64 string1
-                            audio_data = base64_to_bytes(audio_data)
-                    if isinstance(audio_data, Path):
-                        if not audio_data.exists():
-                            raise ValueError(f'Invalid path: {audio_data}')
-                        audio_data = audio_data.read_bytes()
-                    if not isinstance(audio_data, bytes):
-                        raise ValueError('Invalid audio data. Must be bytes or base64 string.')
-                    audio_data = BytesIO(audio_data)
-                    channels = int(channels) if channels else 1
-                    sample_width = int(sample_width) if sample_width else 2
-                    data = AudioSegment.from_file(audio_data, format=format, frame_rate=frame_rate, channels=channels, sample_width=sample_width)
-                    
-            if isinstance(data, (Path, str, bytes, AudioSegment)):
+            elif isinstance(data, (Path, str, bytes, AudioSegment)):
                 data = cls.Load(data)
             return data
         
         def serializer(audio: 'Audio'):
-            return audio.to_base64()
-
+            return _dump_media_dict(audio.to_base64(), cls)
+            
         validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
         serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer)
         return core_schema.json_or_python_schema(
@@ -92,6 +82,10 @@ class Audio(AudioSegment):
             python_schema=validate_schema,
             serialization=serialize_schema
         )
+    
+    @classmethod
+    def __get_pydantic_json_schema__(cls, cs, handler):
+        return _get_media_json_schema(cls)
     
     def __setattr__(self, name, val):
         if name == '_data' and hasattr(self, '_data'):
@@ -367,25 +361,23 @@ class Audio(AudioSegment):
         return self.CastAudio(new_audio)    # type: ignore
     
     @classmethod
-    def Load(cls, data: str|bytes|AudioSegment|Path, /)->Self:
+    def Load(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
         '''Load audio from data. If the data is already an AudioSegment, it will be casted to this class.'''
-        if isinstance(data, (str, bytes, Path)):
-            data = run_any_func(_get_audio, data)
-            if data is None:
-                raise ValueError('Invalid audio data')
-        if not isinstance(data, cls) and isinstance(data, AudioSegment):
-            data = cls.CastAudio(data)
+        if not isinstance(data, cls):
+            if not isinstance(data, AudioSegment):
+                data_io: BytesIO = run_any_func(save_get, data)     # type: ignore
+                audio = AudioSegment.from_file(data_io)
+            data = cls.CastAudio(audio)
         return data # type: ignore
 
     @classmethod
-    async def ALoad(cls, data: str|bytes|AudioSegment|Path)->Self:
+    async def ALoad(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
         '''Asynchronously load audio from data. If the data is already an AudioSegment, it will be casted to this class.'''
-        if isinstance(data, (str, bytes, Path)):
-            data = await run_any_func(_get_audio, data)
-            if data is None:
-                raise ValueError('Invalid audio data')
-        if not isinstance(data, cls) and isinstance(data, AudioSegment):
-            data = cls.CastAudio(data)
+        if not isinstance(data, cls):
+            if not isinstance(data, AudioSegment):
+                data_io: BytesIO = await save_get(data)     # type: ignore
+                audio = AudioSegment.from_file(data_io)
+            data = cls.CastAudio(audio)
         return data # type: ignore
 
     @classmethod

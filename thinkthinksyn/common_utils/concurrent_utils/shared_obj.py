@@ -6,7 +6,8 @@ from pickle import PickleError
 from types import FunctionType
 from weakref import WeakValueDictionary
 from multiprocessing.managers import BaseManager, BaseProxy
-from typing import Self, ClassVar, TYPE_CHECKING, Any, Generator, Callable, override, TypeVar
+from typing import Self, ClassVar, TYPE_CHECKING, Any, Generator, Callable, TypeVar
+from typing_extensions import override
 
 from .file_lock import FileCrossProcessLock
 

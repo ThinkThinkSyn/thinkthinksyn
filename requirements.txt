@@ -13,3 +13,5 @@ aioftp
 aiohttp
 pydub
 json_repair
+moviepy
+ffmpeg_downloader
