@@ -1,10 +1,12 @@
 import os
+import re
 import orjson
 import aiohttp
 import warnings
 import logging
 
 from urllib.parse import quote
+from functools import partial
 from pathlib import Path
 from pydantic import BaseModel
 from pydantic.fields import PydanticUndefined   # type: ignore
@@ -135,25 +137,28 @@ def _tidy_single_msg(msg: _PromptT, default_role='user')->ChatMsgWithRole:
     elif isinstance(msg, dict):
         if 'type' in msg:   # ChatMsgMedia
             return ChatMsgWithRole(role=default_role, content='', medias={0: _tidy_single_media(msg)})
-        else:
+        else:   # ChatMsg
             role = msg.pop('role', default_role)
             content = msg.pop('content', msg.pop('contents', ''))
             curr_medias = {}
             if isinstance(content, (Image, Audio)):
                 content = ''
-                
-                
+                curr_medias[0] = _tidy_single_media(content)
+            elif isinstance(content, dict) and 'type' in content:
+                content = ''
+                curr_medias[0] = _tidy_single_media(content)
             if (medias:= msg.pop('medias', None)) is not None:
-                msg['medias'] = _tidy_msg_medias(medias)    # type: ignore
-            return ChatMsgWithRole(role=role, **msg)  # type: ignore
+                extra_medias = _tidy_msg_medias(medias)    # type: ignore
+                curr_medias.update(extra_medias)
+            return ChatMsgWithRole(role=role, content=content, medias=curr_medias, **msg)  # type: ignore
     raise TypeError(f"Invalid prompt message type: {type(msg)}")
 
-def _tidy_messages(prompt: _PromptT|Sequence[_PromptT])->list[ChatMsgWithRole]:
+def _tidy_messages(prompt: _PromptT|Sequence[_PromptT], default_role='user')->list[ChatMsgWithRole]:
     if not isinstance(prompt, (list, tuple)):
-        return _tidy_prompt([prompt])   # type: ignore
+        return _tidy_messages([prompt])   # type: ignore
     else:
         msgs = []
-        last_role = 'user'
+        last_role = default_role
         for p in prompt:
             msgs.append(_tidy_single_msg(p, default_role=last_role))
             last_role = msgs[-1]['role']
@@ -241,8 +246,9 @@ class ThinkThinkSyn:
             
             if 'history' in payload and 'messages' not in payload:
                 payload['messages'] = payload.pop('history')  # type: ignore
+            __tidy_messages__ = payload.pop('__tidy_messages__', True)
             if (msgs:=payload.pop('messages', None)) is not None:
-                if payload.pop('__tidy_messages__', True):
+                if __tidy_messages__:
                     msgs = _tidy_messages(msgs) # type: ignore
                 payload['messages'] = msgs  # type: ignore
 
@@ -282,7 +288,8 @@ class ThinkThinkSyn:
         self,
         prompt: _PromptT|Sequence[_PromptT],
         /,
-        return_type: _ST,
+        return_type: type[_ST],
+        prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
         **kwargs: Unpack[CompletionInput],
@@ -293,8 +300,9 @@ class ThinkThinkSyn:
         self,
         prompt: _PromptT|Sequence[_PromptT],
         /,
-        return_type: _ST,
+        return_type: type[_ST],
         return_raw_output: Literal[False],
+        prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
         **kwargs: Unpack[CompletionInput],
@@ -305,8 +313,9 @@ class ThinkThinkSyn:
         self,
         prompt: _PromptT|Sequence[_PromptT],
         /,
-        return_type: _ST,
+        return_type: type[_ST],
         return_raw_output: Literal[True],
+        prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
         **kwargs: Unpack[CompletionInput],
@@ -318,6 +327,7 @@ class ThinkThinkSyn:
         /,
         return_type: type,
         return_raw_output: bool = False,
+        prompt_type: Literal["system", "user"] = "system",
         default: Any = None,
         retry: bool | int = 1,
         **kwargs: Unpack[CompletionInput],
@@ -338,11 +348,12 @@ class ThinkThinkSyn:
             retry: Whether to retry when parsing fails. If an integer is provided, it indicates the maximum number of retries.
             **kwargs: Other kwargs for `completion` method.
         '''
+        origin_kwargs = kwargs.copy()
         assert prompt, "`prompt` cannot be empty."
         if (msgs:= kwargs.pop('messages', None)) is not None:
-            msgs = list(msgs) + _tidy_messages(prompt)
+            msgs = list(msgs) + _tidy_messages(prompt, default_role=prompt_type)  # type: ignore
         else:
-            msgs = _tidy_messages(prompt)
+            msgs = _tidy_messages(prompt, default_role=prompt_type)  # type: ignore
         assert msgs, "No prompt is given."
         
         if (schema := kwargs.pop('json_schema', None)) is not None:
@@ -379,7 +390,6 @@ class ThinkThinkSyn:
 
         def try_extract(
             s: str,
-            raw_response: CompletionOutput, 
             try_validate_types: list[tuple[type, Callable[[Any], Any] | None]]
         ):
             if isinstance(s, str):
@@ -431,14 +441,10 @@ class ThinkThinkSyn:
                     return val
                 except Exception as e:
                     if i != len(try_validate_types) - 1:
-                        _logger.debug(
-                            f"(CompletionService.JsonComplete) {raw_response['input']['model']} Failed to validate the json response ```{s}``` to type {try_type}. Error: {type(e).__name__}:{e}. Trying next type: {try_validate_types[i+1][0]}" # type: ignore
-                        )
+                        _logger.debug(f"Failed to validate the json response ```{s}``` to type {try_type}. Error: {type(e).__name__}:{e}. Trying next type: {try_validate_types[i+1][0]}" )
                         continue
                     else:
-                        _logger.debug(
-                            f"(CompletionService.JsonComplete) {raw_response['input']['model']} Failed to validate the json response ```{s}``` to type {try_type}. Error: {type(e).__name__}:{e}" # type: ignore
-                        )
+                        _logger.debug(f"Failed to validate the json response ```{s}``` to type {try_type}. Error: {type(e).__name__}:{e}")
                         return Empty
             return Empty
         extract = partial(try_extract, try_validate_types=try_validate_types)  # type: ignore
@@ -458,11 +464,78 @@ class ThinkThinkSyn:
         msgs[-1]['content'] = last_prompt  # type: ignore
         
         payload = {
-            '__tidy_messages__': False,
+            '__tidy_messages__': False,     # no need to tidy again
             'messages': msgs,
             'json_schema': schema,
             **kwargs,
         }
+        
+        async def retry_or_raise(e, retry_count: int):
+            if retry_count:
+                retry_count -= 1
+                _logger.debug(f"Failed to get json response from LLM. Error: {type(e).__name__}:{e}. Retrying..., {retry_count} retries left.")
+                return await self.json_complete(
+                    prompt,
+                    return_type=return_type,
+                    prompt_type=prompt_type,
+                    default=default,
+                    return_raw_output=return_raw_output,  # type: ignore
+                    retry=retry_count,
+                    **origin_kwargs,
+                )  # type: ignore
+            else:
+                _logger.debug(f"Failed to get json response from LLM. Error: {type(e).__name__}:{e}.")
+            if return_raw_output:
+                raise ValueError(f"Failed to get json response from LLM. Error: {type(e).__name__}:{e}") from e
+            return default  # type: ignore
+        
+        try:
+            r: CompletionOutput = await self.completion(**payload)  # type: ignore
+        except aiohttp.ClientResponseError as e:
+            if e.status in (401, 403):
+                raise PermissionError("Authentication failed. Please check your API key.") from e
+            return await retry_or_raise(e, retry_count)
+        except Exception as e:
+            return await retry_or_raise(e, retry_count)
+        json_r = Empty
+
+        if check_type_is(return_type, (list, tuple)):
+            try_patterns = [r"(\[.*\])", r"(\{.*\})"]  # try both `[...]` and `{...}`
+        else:
+            try_patterns = [r"(\{.*\})"]  # try `{...}` only
+
+        while (json_r is Empty) and try_patterns:
+            p = try_patterns.pop(0)
+            if json_text := re.search(p, r['text'], re.DOTALL | re.MULTILINE):
+                json_text = json_text.group(1)
+                json_r = extract(json_text)     # type: ignore
+
+        if json_r is Empty:
+            if retry_count:
+                retry_count -= 1
+                _logger.debug(
+                    f"{r['input']['model']} Failed to extract json response from {r['text']} to type {return_type}. Retrying..., {retry_count} retries left."
+                )
+                return await self.json_complete(
+                    prompt,
+                    return_type=return_type,
+                    prompt_type=prompt_type,
+                    default=default,
+                    return_raw_output=return_raw_output,  # type: ignore
+                    retry=retry_count,
+                    **origin_kwargs,
+                )  # type: ignore
+            else:
+                _logger.debug(f"{r['input']['model']} Failed to extract json response from {r['text']} to type {return_type}.")
+            if return_raw_output:
+                return default, r  # type: ignore
+            return default  # type: ignore
+        else:
+            if need_convert_to_tuple and isinstance(json_r, Sequence) and not isinstance(json_r, str):
+                json_r = tuple(json_r)
+            if return_raw_output:
+                return json_r, r  # type: ignore
+            return json_r  # type: ignore
     # endregion
     
     # region embedding

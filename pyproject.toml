@@ -4,8 +4,6 @@ build-backend = "setuptools.build_meta"
 
 [project]
 version = "0.0.1"
-
-[project]
 name = "thinkthinksyn"
 dependencies = [
   "numpy",
@@ -15,20 +13,24 @@ dependencies = [
   "colorlog",
   "attrs",
   "typeguard",
-  "typing>=3.7",
-  "typing-extensions>=4.14",
+  "typing-extensions>=4.1.0",
   "pillow",
   "psutil",
   "aioftp",
   "aiohttp",
-  "pydub"
+  "pydub",
+  "ffmpeg-downloader",
+  "moviepy",
+  "noisereduce",
+  "json-repair",
+  "audioop-lts",
 ]
 requires-python = ">= 3.11"
 authors = [
   {name = "ThinkThinkSyn", email = "contact@thinkthinksyn.com"},
 ]
 
-[project.optional-dependencies]
-full = [
-  "noisereduce"
-]
+[tool.setuptools.packages.find]
+where = [""]
+include = ["thinkthinksyn*"]
+exclude = ["tmp*"]

@@ -15,3 +15,5 @@ pydub
 json_repair
 moviepy
 ffmpeg_downloader
+noisereduce
+audioop-lts

@@ -350,7 +350,7 @@ def _direct_check_sub_cls(sub_cls: type | str, super_cls: type | str):
                         result = True
                         break
 
-        # special treatment for Protocol
+    # special treatment for Protocol
     if result is None and _is_protocol_type(super_cls) and super_cls != Protocol:
         if _save_isinstance(sub_cls, str):
             result = False
@@ -359,7 +359,7 @@ def _direct_check_sub_cls(sub_cls: type | str, super_cls: type | str):
         else:
             checked = set()
             # check annotations
-            if not super_cls.__callable_proto_members_only__:  # type: ignore
+            if not getattr(super_cls, '__callable_proto_members_only__', False):  # type: ignore
                 from .type_helpers import get_cls_annotations
 
                 super_cls_anno = get_cls_annotations(super_cls)
@@ -729,7 +729,7 @@ def check_value_is(value: Any, types):
     elif _is_protocol_type(types):
         checked = set()
         # check annotations
-        if not types.__callable_proto_members_only__:  # type: ignore
+        if not getattr(types, '__callable_proto_members_only__', False):  # type: ignore
             from .type_helpers import get_cls_annotations
 
             type_anno = get_cls_annotations(types)

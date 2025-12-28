@@ -5,31 +5,23 @@ from typing import Self
 from pydantic import BaseModel, TypeAdapter
 
 from test_utils import tts, register_testing, run_testing
-from thinkthinksyn import google_search_tool, wiki_search_tool, LLM, Qwen3_30B_A3B_Omni_Instruct
+from thinkthinksyn import (google_search_tool, wiki_search_tool, LLM, Qwen3_30B_A3B_Omni_Instruct)
 
 module = 'completion'
 
 @register_testing(module)
-async def normal_test():
+async def simple_test():
     return (await tts.completion(prompt='1+1? tell me ans directly without other words.'))['text'].strip()
 
 @register_testing(module)
-async def stream_test():
+async def streaming_test():
     text = ''
     async for chunk in tts.stream_completion(prompt='Count from 1 to 5, without other words.'):
         text += chunk['data'] if chunk['event'] == 'message' else ''
     return text.strip()
-
-# @register_testing(module)
-# async def internal_tool_test():
-#     return (await tts.completion(
-#         prompt='Who is zutomayo?.',
-#         tools=[google_search_tool, wiki_search_tool],
-#         tool_config={'call_mode': 'inline'}
-#     ))['text']
     
 @register_testing(module)
-async def test_image():
+async def image_input_test():
     curr_dir = os.path.dirname(os.path.abspath(__file__))
     img_path = os.path.join(curr_dir, 'test-page.png')
     with open(img_path, 'rb') as f:
@@ -52,7 +44,7 @@ async def test_image():
     return adapter.validate_json(result['text'])
 
 @register_testing(module)
-async def test():    
+async def json_schema_test():    
     class CalculationResult(BaseModel):
         explain: str
         result: float|int
@@ -66,6 +58,27 @@ async def test():
         json_schema=MCResult[CalculationResult].model_json_schema()
     ))['text']
     return MCResult[CalculationResult].model_validate_json(r)
+    
+@register_testing(module)
+async def json_complete_test():
+    class Person(BaseModel):
+        name: str
+        age: int
+        friends: list[str]
+    
+    r = await tts.json_complete(
+        'Generate a json object representing a person named Alice, age 30, with friends Bob and Charlie. Respond only with the json object.',
+        return_type=Person,
+    )
+    return r
+
+# @register_testing(module)
+# async def internal_tool_test():
+#     return (await tts.completion(
+#         prompt='Who is zutomayo?.',
+#         tools=[google_search_tool, wiki_search_tool],
+#         tool_config={'call_mode': 'inline'}
+#     ))['text']
     
 if __name__ == '__main__':
     run_testing(module)

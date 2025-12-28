@@ -61,7 +61,7 @@ _T = TypeVar('_T')
 _ContainT = TypeVar('_ContainT')
 _IT = TypeVar('_IT', bound=_AIInputBase)
 
-class AIOutput(Generic[_IT], TypedDict, total=False):
+class AIOutput(Generic[_IT], TypedDict):
     input: _IT
     '''receipt of the final input.'''
 
