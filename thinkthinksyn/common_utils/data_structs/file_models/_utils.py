@@ -1,6 +1,9 @@
 import os
 import hashlib
+import ffmpeg_downloader as ffdl
 
+from argparse import Namespace    
+from shutil import which
 from pydantic import BaseModel
 from functools import cache
 
@@ -39,13 +42,17 @@ def _get_media_json_schema(cls: type)->dict:
 
 @cache
 def _init_ffmpeg():
-    import ffmpeg_downloader as ffdl
+    def check_command_exists(cmd):
+        return which(cmd) is not None
+    
+    if check_command_exists('ffmpeg') and check_command_exists('ffprobe') and check_command_exists('ffplay'):
+        return
+    
     ffmpeg_path = ffdl.ffmpeg_path
     ffprobe_path = ffdl.ffprobe_path
     ffplay_path = ffdl.ffplay_path
     if not (ffmpeg_path and ffprobe_path and ffplay_path):
         from ffmpeg_downloader import __main__ as ffdl_main
-        from argparse import Namespace
         args = Namespace(
             add_path=False,
             force=False,
