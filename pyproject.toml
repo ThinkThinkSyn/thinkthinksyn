@@ -29,8 +29,15 @@ requires-python = ">= 3.11"
 authors = [
   {name = "ThinkThinkSyn", email = "contact@thinkthinksyn.com"},
 ]
+license = "MIT"
+license-files = ["LICEN[CS]E*"]
+readme = "README.md"
 
 [tool.setuptools.packages.find]
 where = [""]
 include = ["thinkthinksyn*"]
 exclude = ["tmp*"]
+
+[project.urls]
+Homepage = "https://github.com/ThinkThinkSyn/thinkthinksyn"
+Issues = "https://github.com/ThinkThinkSyn/thinkthinksyn/issues"
