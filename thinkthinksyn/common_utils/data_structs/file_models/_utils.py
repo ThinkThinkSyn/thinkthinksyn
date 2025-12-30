@@ -20,10 +20,10 @@ def _try_get_from_dict(d: dict, *keys: str):
             continue
     return None
 
-def _dump_media_dict(base64_data: str, cls: type)->dict:
+def _dump_media_dict(data: str, cls: type)->dict:
     return {
         'type': cls.__name__.lower(),
-        'data': base64_data,
+        'data': data,
     }
 
 class _MediaModel(BaseModel):

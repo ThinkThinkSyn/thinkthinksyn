@@ -3,7 +3,7 @@ requires = ["setuptools"]
 build-backend = "setuptools.build_meta"
 
 [project]
-version = "0.0.1"
+version = "0.0.2"
 name = "thinkthinksyn"
 dependencies = [
   "numpy",
@@ -24,6 +24,7 @@ dependencies = [
   "noisereduce",
   "json-repair",
   "audioop-lts",
+  "pyvips[binary]",
 ]
 requires-python = ">= 3.11"
 authors = [

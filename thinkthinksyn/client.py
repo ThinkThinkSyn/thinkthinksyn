@@ -44,42 +44,26 @@ def _tidy_single_media(media: _ChatMsgMedia)->ChatMsgMedia:
     elif isinstance(media, dict):
         media_type = detect_media_type(media.get('type', ''))
         common_keys = ('content', 'data', 'url', 'base64',)
-        if media_type == 'image':
-            keys = common_keys + ('image', 'image_url', 'img', 'picture', 'image_data', 'photo')
+        if media_type in ('image', 'audio', 'video'):
+            if media_type == 'image':
+                keys = common_keys + ('image', 'image_url', 'img', 'picture', 'image_data', 'photo')
+            elif media_type == 'audio':
+                keys = common_keys + ('audio', 'audio_url', 'sound', 'music', 'audio_data', 'voice')
+            elif media_type == 'video':
+                keys = common_keys + ('video', 'video_url', 'movie', 'clip', 'video_data')
+            
             for k in keys:
                 if (data := media.get(k, None)) is not None:
                     media.pop('type', None)
                     media.pop('content', None)
                     media.pop(k, None)
-                    if isinstance(data, Image):
+                    if isinstance(data, (Image, Audio, Video)):
                         data = data.to_base64(url_scheme=True)
                     return dict(type='image', content=data, **media)  # type: ignore
             raise ValueError(f"Cannot find image content in media dict. Expected keys: {keys}")
-        elif media_type == 'audio':
-            keys = common_keys + ('audio', 'audio_url', 'sound', 'music', 'audio_data', 'voice')
-            for k in keys:
-                if (data := media.get(k, None)) is not None:
-                    media.pop('type', None)
-                    media.pop('content', None)
-                    media.pop(k, None)
-                    if isinstance(data, Audio):
-                        data = data.to_base64(url_scheme=True)
-                    return dict(type='audio', content=data, **media)  # type: ignore
-            raise ValueError(f"Cannot find audio content in media dict. Expected keys: {keys}")
-        elif media_type == 'video':
-            keys = common_keys + ('video', 'video_url', 'movie', 'clip', 'video_data')
-            for k in keys:
-                if (data := media.get(k, None)) is not None:
-                    media.pop('type', None)
-                    media.pop('content', None)
-                    media.pop(k, None)
-                    if isinstance(data, Video):
-                        data = data.to_base64(url_scheme=True)
-                    return dict(type='video', content=data, **media)  # type: ignore
-            raise ValueError(f"Cannot find video content in media dict. Expected keys: {keys}")
         else:
             raise ValueError(f"Unrecognized media type: {media.get('type', '')}")
-    
+        
     if isinstance(media, Path):
         media = str(media)
     if isinstance(media, str):

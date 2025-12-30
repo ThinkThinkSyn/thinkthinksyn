@@ -1,5 +1,10 @@
-from ._utils import _init_ffmpeg
-_init_ffmpeg()
+if __name__ == "__main__":  # for debugging
+    import os, sys
+    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
+    sys.path.append(_proj_path)
+    __package__ = 'common_utils.data_structs.file_models'
+
+import asyncio
 
 from io import BytesIO
 from pathlib import Path
@@ -22,7 +27,18 @@ AudioFormat: TypeAlias = Literal["wav", "mp3", "aac", "flac", "opus", "ogg", "m4
 StreamableAudioFormat: TypeAlias = Literal["wav", "opus", "aac", "mp3"]
 '''Supported streamable audio formats. Note that this is a subset of `AudioFormat`'''
 
-class Audio(AudioSegment):
+class _AudioMeta(type(AudioSegment)):
+    def __subclasscheck__(self, subclass: type)-> bool:
+        if subclass.__name__ in (Audio.__name__, _DeferAudioLoader.__name__):
+            return True
+        return super().__subclasscheck__(subclass)
+    
+    def __instancecheck__(self, instance: object) -> bool:
+        if instance.__class__.__name__ in (Audio.__name__, _DeferAudioLoader.__name__):
+            return True
+        return super().__instancecheck__(instance)
+
+class Audio(AudioSegment, metaclass=_AudioMeta):
     '''
     Advance audio model for easy validation in pydantic.
     Available deserialization formats:
@@ -58,21 +74,33 @@ class Audio(AudioSegment):
                 channels = _try_get_from_dict(data, 'channels', 'Channels')
                 sample_width = _try_get_from_dict(data, 'sample_width', 'SampleWidth')
                 audio_data = _try_get_from_dict(data, 'data', 'Data', 'source', 'content', 'Source', 'url', 
-                                                'URL', 'audio', 'Audio', 'voice', 'Voice', 'sound', 'Sound')
-                
+                                                'URL', 'audio', 'Audio', 'voice', 'Voice', 'sound', 'Sound')    
                 if not audio_data:
                     raise ValueError('No valid audio data found')
-                
                 channels = int(channels) if channels else 1
                 sample_width = int(sample_width) if sample_width else 2
                 audio_io = run_any_func(save_get, audio_data)    # type: ignore
                 data = AudioSegment.from_file(audio_io, format=format, frame_rate=frame_rate, channels=channels, sample_width=sample_width)
-                    
-            elif isinstance(data, (Path, str, bytes, AudioSegment)):
+                
+            if isinstance(data, (Path, str, bytes)):
                 data = cls.Load(data)
+            elif isinstance(data, AudioSegment):
+                data = cls.CastAudio(data)
             return data
         
         def serializer(audio: 'Audio'):
+            if isinstance(audio, _DeferAudioLoader):
+                if audio.__real_audio__:
+                    return _dump_media_dict(audio.__real_audio__.to_base64(), Audio)
+                elif isinstance(audio.__audio_source__, (str, Path)):
+                    if isinstance(audio.__audio_source__, Path):
+                        source = str(audio.__audio_source__)
+                    else:
+                        source = audio.__audio_source__
+                    return _dump_media_dict(source, Audio)
+                else:
+                    audio_obj = audio._defer_load_audio()
+                    return _dump_media_dict(audio_obj.to_base64(), Audio)
             return _dump_media_dict(audio.to_base64(), cls)
             
         validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
@@ -299,7 +327,7 @@ class Audio(AudioSegment):
             new_end = max(self.end_time, seg.end_time)  # type: ignore
         else:
             new_start = new_end = None
-        seg = Audio.Load(seg)
+        seg = Audio._Load(seg)
         
         if noise_reduce:
             seg = seg.reduce_noise()
@@ -361,24 +389,48 @@ class Audio(AudioSegment):
         return self.CastAudio(new_audio)    # type: ignore
     
     @classmethod
-    def Load(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
+    def _Load(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
         '''Load audio from data. If the data is already an AudioSegment, it will be casted to this class.'''
         if not isinstance(data, cls):
             if not isinstance(data, AudioSegment):
-                data_io: BytesIO = run_any_func(save_get, data)     # type: ignore
+                data_io: BytesIO = run_any_func(save_get, data)     # type: ignore    
+                from ._utils import _init_ffmpeg
+                _init_ffmpeg()
                 audio = AudioSegment.from_file(data_io)
-            data = cls.CastAudio(audio)
+                data = cls.CastAudio(audio)
+            else:
+                data = cls.CastAudio(data)
         return data # type: ignore
 
     @classmethod
-    async def ALoad(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
+    async def _ALoad(cls, data: AcceptableFileSource|AudioSegment, /)->Self:
         '''Asynchronously load audio from data. If the data is already an AudioSegment, it will be casted to this class.'''
         if not isinstance(data, cls):
             if not isinstance(data, AudioSegment):
-                data_io: BytesIO = await save_get(data)     # type: ignore
+                data_io: BytesIO = await save_get(data)     # type: ignore                
+                from ._utils import _init_ffmpeg
+                await asyncio.to_thread(_init_ffmpeg)
                 audio = AudioSegment.from_file(data_io)
-            data = cls.CastAudio(audio)
+                data = cls.CastAudio(audio)
+            else:
+                data = cls.CastAudio(data)
         return data # type: ignore
+    
+    @classmethod
+    def Load(cls, source: AcceptableFileSource|AudioSegment, /)->Self:
+        '''load audio from file bytes, path or url
+        NOTE: a deferred loader will be returned, the actual audio data will be loaded when accessed.'''
+        if isinstance(source, AudioSegment):
+            return cls.CastAudio(source)
+        return _DeferAudioLoader(source)   # type: ignore
+    
+    @classmethod
+    async def ALoad(cls, source: AcceptableFileSource|AudioSegment, /)->Self:
+        '''asynchronously load audio from file bytes, path or url
+        NOTE: a deferred loader will be returned, the actual audio data will be loaded when accessed.'''
+        if isinstance(source, AudioSegment):
+            return cls.CastAudio(source)
+        return await _DeferAudioLoader(source)   # type: ignore 
 
     @classmethod
     def CastAudio(cls, audio: AudioSegment)->Self:   
@@ -451,6 +503,94 @@ class _AudioRetWrapper:
     def __is_async_func__(self)->bool:
         # `for `is_async_callable` to work
         return is_async_callable(self.f)
+
+_no_need_init_audio_attrs = ('__audio_source__', '__real_audio__', '__dict__', '__weakref__', '__module__', '__doc__',
+                             '__dir__', '__getattribute__', '__setattr__', '__init__', '__annotations__',
+                             '__class__', '__getattr__', '__get_pydantic_core_schema__', 
+                             '__get_pydantic_json_schema__', '_defer_load_audio')
+
+_audio_dir = set(dir(Audio))
+_audio_dir.update(AudioSegment.__annotations__.keys())
+
+class _DeferAudioLoader:
+    __audio_source__: AcceptableFileSource
+    __real_audio__: Audio|None = None
     
+    def __init__(self, source: AcceptableFileSource):
+        if isinstance(source, _DeferAudioLoader):
+            self.__real_audio__ = source.__real_audio__
+            self.__audio_source__ = source.__audio_source__
+        else:
+            self.__audio_source__ = source
+    
+    def _defer_load_audio(self)->Audio:        
+        if not self.__real_audio__:
+            self.__real_audio__ = Audio._Load(self.__audio_source__)
+        return self.__real_audio__
+    
+    def __getattr__(self, name):
+        if name not in _no_need_init_audio_attrs:
+            audio = self.__real_audio__
+            if not audio and name in _audio_dir:
+                audio = self._defer_load_audio()
+            if audio:
+                return getattr(audio, name)
+        raise AttributeError(f"'{Audio.__name__}' object has no attribute '{name}'")
+    
+    @classmethod
+    def __get_pydantic_json_schema__(cls, cs, handler):
+        return Audio.__get_pydantic_json_schema__(cs, handler)
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        def validator(data):
+            raise ValueError('DeferAudioLoader cannot be directly validated. It can only be used as a placeholder for deferred loading of Audio.')
+        
+        def serializer(audio: '_DeferAudioLoader'):
+            if audio.__real_audio__:
+                return _dump_media_dict(audio.__real_audio__.to_base64(), Audio)
+            elif isinstance(audio.__audio_source__, (str, Path)):
+                if isinstance(audio.__audio_source__, Path):
+                    source = str(audio.__audio_source__)
+                else:
+                    source = audio.__audio_source__
+                return _dump_media_dict(source, Audio)
+            else:
+                audio_obj = audio._defer_load_audio()
+                return _dump_media_dict(audio_obj.to_base64(), Audio)
+            
+        validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
+        serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer)
+        return core_schema.json_or_python_schema(
+            json_schema=validate_schema,
+            python_schema=validate_schema,
+            serialization=serialize_schema
+        )
+
+_DeferAudioLoader.__doc__ = Audio.__doc__
+_DeferAudioLoader.__init__.__doc__ = Audio.__init__.__doc__
+_DeferAudioLoader.__annotations__ = Audio.__annotations__
+
 
 __all__ = ['Audio', 'AudioFormat', 'StreamableAudioFormat']
+
+
+if __name__ == '__main__':
+    def test():
+        from pydantic import BaseModel
+        class A(BaseModel):
+            audio: Audio
+        
+        audio_url = 'https://api.thinkthinksyn.com/resources/tts/ab_asr_address_yue.wav'
+        audio = Audio.Load(audio_url)
+        
+        print(isinstance(audio, _DeferAudioLoader))   # True
+        print(isinstance(audio, Audio))               # True
+        
+        a = A(audio=audio)
+        
+        print(len(str(a.model_dump())))     # in this moment, audio is not loaded yet, will dump as url
+        print(audio.duration_seconds)              # this will trigger loading
+        print(len(str(a.model_dump())))     # now audio is loaded, so the dump is different
+        
+    test()

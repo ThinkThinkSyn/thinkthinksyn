@@ -4,9 +4,6 @@ if __name__ == "__main__":  # for debugging
     sys.path.append(_proj_path)
     __package__ = 'common_utils.data_structs.file_models'
 
-from ._utils import _init_ffmpeg
-_init_ffmpeg()
-
 import os
 import base64
 import tempfile
@@ -202,6 +199,8 @@ class Video(VideoClip):
         self._origin_format = maybe_format
         
         def defer_loader(source):
+            from ._utils import _init_ffmpeg
+            _init_ffmpeg()
             video_file = None
             if source_str and len(source_str) < 1024:   # seems like a path
                 if not source_str.startswith(('http://', 'https://', 'ftp://', 's3://', 'gs://')):

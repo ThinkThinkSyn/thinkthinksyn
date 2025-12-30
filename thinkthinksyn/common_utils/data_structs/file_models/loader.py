@@ -18,8 +18,8 @@ _IO = TypeVar('_IO', bound=BinaryIO)
 _Generator = TypeAliasType("_Generator", Generator[_T, None, None]|AsyncGenerator[_T, None]|AsyncIterable[_T]|Iterable[_T], type_params=(_T,))
 AcceptableFileSource = TypeAliasType("AcceptableFileSource", str|bytes|Path|_Generator[bytes]|_Generator[str])
 
-_DEFAULT_MAX_SIZE = 128 * 1024 * 1024  # 128 MB
-_DEFAULT_TIMEOUT = 32  # seconds
+_DEFAULT_MAX_SIZE = 256 * 1024 * 1024  # 256 MB
+_DEFAULT_TIMEOUT = 120  # seconds
 
 async def _save_get_stream(
     stream: _Generator[bytes],
@@ -521,6 +521,9 @@ if __name__ == "__main__":
 
     async def test():
         data = await save_get('https://qianwen-res.oss-cn-beijing.aliyuncs.com/Qwen3-Omni/demo/cars.jpg')
+        print(f"Retrieved data size: {len(data.read())} bytes")
+
+        data = await save_get('https://api.thinkthinksyn.com/resources/tts/ab_asr_address_yue.wav')
         print(f"Retrieved data size: {len(data.read())} bytes")
 
     asyncio.run(test())

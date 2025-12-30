@@ -1,3 +1,9 @@
+if __name__ == "__main__":  # for debugging
+    import os, sys
+    _proj_path = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', '..'))
+    sys.path.append(_proj_path)
+    __package__ = 'common_utils.data_structs.file_models'
+
 import os
 import base64
 import logging
@@ -73,7 +79,54 @@ def _crop_img(
     else:
         return img_obj
 
-class Image(PILImage.Image):
+def _is_svg(data: str|Path|bytes)->bool:
+    if isinstance(data, Path):
+        if not data.is_file():
+            return False
+        if data.suffix.lower() == '.svg':
+            return True
+        try:
+            with open(data, 'r', encoding='utf-8') as f:
+                header = f.read(512)
+            if '<svg' in header:
+                return True
+        except:
+            return False
+    elif isinstance(data, str):
+        if '<svg' in data[:512]:
+            return True
+    elif isinstance(data, bytes):
+        if b'<svg' in data[:512]:
+            return True
+    return False
+
+def _svg_convert(source: str|Path, format='png')-> bytes:
+    import pyvips
+    if isinstance(source, Path):
+        if not source.is_file():
+            raise ValueError(f'SVG file not found: {source}')
+        source = str(source.resolve())
+        vips_img: pyvips.Image = pyvips.Image.new_from_file(source, access='sequential')    # type: ignore
+    elif len(source) < 1024 and os.path.isfile(source):
+        vips_img = pyvips.Image.new_from_file(source, access='sequential')  # type: ignore
+    else:
+        vips_img = pyvips.Image.new_from_buffer(source.encode('utf-8'), '', access='sequential')    # type: ignore
+    if not vips_img:
+        raise ValueError(f'Failed to load SVG image from `...{source[-64:]}`')  # type: ignore
+    return vips_img.write_to_buffer(f'.{format}')   # type: ignore
+
+class _ImageMeta(type(PILImage.Image)):
+    def __subclasscheck__(self, subclass: type)-> bool:
+        if subclass.__name__ in (Image.__name__, _DeferImageLoader.__name__):
+            return True
+        return super().__subclasscheck__(subclass)
+    
+    def __instancecheck__(self, instance: object) -> bool:
+        if instance.__class__.__name__ in (Image.__name__, _DeferImageLoader.__name__):
+            return True
+        return super().__instancecheck__(instance)
+
+class Image(PILImage.Image, metaclass=_ImageMeta):
     '''Advanced Image class with pydantic support'''
     
     @classmethod
@@ -86,11 +139,24 @@ class Image(PILImage.Image):
             return data
         
         def serializer(img: 'Image'):
-            if img.channel_count <= 3:
-                format = 'jpg'
+            if isinstance(img, _DeferImageLoader):
+                if img.__real_image__:
+                    return _dump_media_dict(img.__real_image__.to_base64(), Image)
+                elif isinstance(img.__image_source__, (str, Path)):
+                    if isinstance(img.__image_source__, Path):
+                        source = str(img.__image_source__)
+                    else:
+                        source = img.__image_source__
+                    return _dump_media_dict(source, Image)
+                else:
+                    image_obj = img._defer_load_image()
+                    return _dump_media_dict(image_obj.to_base64(), Image)
             else:
-                format = 'png'
-            return _dump_media_dict(img.to_base64(format=format), cls)
+                if img.channel_count <= 3:
+                    format = 'jpg'
+                else:
+                    format = 'png'
+                return _dump_media_dict(img.to_base64(format=format), cls)
 
         validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
         serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer)
@@ -328,22 +394,50 @@ class Image(PILImage.Image):
             raise ValueError(f'Invalid method: {method}')
     
     @classmethod
-    def Load(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
+    def _Load(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
         '''load image from file bytes, path or url'''
         if not isinstance(img, cls):
             if not isinstance(img, PILImage.Image):
-                img = run_any_func(save_get, img)
-            img = cls.CastPILImage(PILImage.open(img))  # type: ignore
-        return img
+                if _is_svg(img):    # type: ignore
+                    img_bytes = _svg_convert(img, format='png')  # type: ignore
+                    img = PILImage.open(BytesIO(img_bytes))   # type: ignore
+                else:
+                    img = run_any_func(save_get, img)    # type: ignore
+                    img = PILImage.open(img)    # type: ignore
+                img.load()  # type: ignore
+            img = cls.CastPILImage(img)  # type: ignore
+        return img  # type: ignore
     
     @classmethod
-    async def ALoad(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
+    async def _ALoad(cls, img: AcceptableFileSource|PILImage.Image, /)->Self:
         '''asynchronously load image from file bytes, path or url'''
         if not isinstance(img, cls):
             if not isinstance(img, PILImage.Image):
-                img = await save_get(img)
-            img = cls.CastPILImage(PILImage.open(img))  # type: ignore
-        return img
+                if _is_svg(img):    # type: ignore
+                    img_bytes = _svg_convert(img, format='png')  # type: ignore
+                    img = PILImage.open(BytesIO(img_bytes))   # type: ignore
+                else:
+                    img = await save_get(img)   # type: ignore
+                    img = PILImage.open(img)    # type: ignore
+                img.load()  # type: ignore
+            img = cls.CastPILImage(img)  # type: ignore
+        return img  # type: ignore
+    
+    @classmethod
+    def Load(cls, source: AcceptableFileSource|Self, /)->Self:
+        '''load image from file bytes, path or url.
+        NOTE: a deferred loader will be returned, the image will be loaded when first used.'''
+        if isinstance(source, PILImage.Image):
+            return cls.CastPILImage(source)
+        return _DeferImageLoader(source)    # type: ignore
+    
+    @classmethod
+    async def ALoad(cls, source: AcceptableFileSource|Self, /)->Self:
+        '''asynchronously load image from file bytes, path or url.
+        NOTE: a deferred loader will be returned, the image will be loaded when first used.'''
+        if isinstance(source, PILImage.Image):
+            return cls.CastPILImage(source)
+        return await _DeferImageLoader(source)  # type: ignore
     
     @classmethod
     def New(
@@ -425,6 +519,97 @@ class _ImgRetWrapper:
         else:
             r = _ImgRetWrapper._recursive_cast_image(r)
             return r
+
+_no_need_init_image_attrs = ('__image_source__', '__real_image__', '__dict__', '__weakref__', '__module__', '__doc__',
+                             '__dir__', '__getattribute__', '__setattr__', '__init__', '__annotations__',
+                             '__class__', '__getattr__', '__get_pydantic_core_schema__', 
+                             '__get_pydantic_json_schema__', '_defer_load_image')
+
+_image_dir = set(dir(Image))
+_image_dir.update(PILImage.Image.__annotations__.keys())
+
+class _DeferImageLoader:
+    __image_source__: AcceptableFileSource
+    __real_image__: Image|None = None
+    
+    def __init__(self, source: AcceptableFileSource):
+        if isinstance(source, _DeferImageLoader):
+            self.__real_image__ = source.__real_image__
+            self.__image_source__ = source.__image_source__
+        else:
+            self.__image_source__ = source
+    
+    def _defer_load_image(self)->Image:        
+        if not self.__real_image__:
+            self.__real_image__ = Image._Load(self.__image_source__)
+        return self.__real_image__
+    
+    def __getattr__(self, name):
+        if name not in _no_need_init_image_attrs:
+            image = self.__real_image__
+            if not image and name in _image_dir:
+                image = self._defer_load_image()
+            if image:
+                return getattr(image, name)
+        raise AttributeError(f"'{Image.__name__}' object has no attribute '{name}'")  # type: ignore
+    
+    @classmethod
+    def __get_pydantic_json_schema__(cls, cs, handler):
+        return Image.__get_pydantic_json_schema__(cs, handler)
+    
+    @classmethod
+    def __get_pydantic_core_schema__(cls, source, handler):
+        def validator(data):
+            raise ValueError('DeferImageLoader cannot be directly validated. It can only be used as a placeholder for deferred loading of Image.')
         
+        def serializer(image: '_DeferImageLoader'):
+            if image.__real_image__:
+                return _dump_media_dict(image.__real_image__.to_base64(), Image)
+            elif isinstance(image.__image_source__, (str, Path)):
+                if isinstance(image.__image_source__, Path):
+                    source = str(image.__image_source__)
+                else:
+                    source = image.__image_source__
+                return _dump_media_dict(source, Image)
+            else:
+                image_obj = image._defer_load_image()
+                return _dump_media_dict(image_obj.to_base64(), Image)
+            
+        validate_schema = core_schema.no_info_after_validator_function(validator, core_schema.any_schema())
+        serialize_schema = core_schema.plain_serializer_function_ser_schema(serializer)
+        return core_schema.json_or_python_schema(
+            json_schema=validate_schema,
+            python_schema=validate_schema,
+            serialization=serialize_schema
+        )        
     
 __all__ = ['Image', 'CommonImgFormat', 'ImageColorMode']
+
+
+if __name__ == '__main__':
+    def test_load_svg():
+        svg = '''<svg height="100" width="100">
+        <circle r="45" cx="50" cy="50" stroke="green" stroke-width="3" fill="red" />
+        </svg>'''
+        img = Image.Load(svg)
+        print(img.size, img.mode)
+        
+    def test():
+        from pydantic import BaseModel
+        class A(BaseModel):
+            img: Image
+        
+        img_url = 'https://api.thinkthinksyn.com/resources/tts/logo512.png'
+        
+        img = Image.Load(img_url)
+        print(isinstance(img, _DeferImageLoader))   # True
+        print(isinstance(img, Image))               # True
+        
+        a = A(img=img)
+        
+        print(len(str(a.model_dump())))     # in this moment, img is not loaded yet, will dump as url
+        print(img.size, img.mode)               # this will trigger loading
+        print(len(str(a.model_dump())))     # now img is loaded, so the dump is different
+    
+    test_load_svg()
+    test()
