@@ -1,6 +1,13 @@
 from typing import TypedDict, Any, TypeAlias, Literal, Union, TYPE_CHECKING, Generic, TypeVar
+from contextvars import ContextVar
 
 from ..common_utils.data_structs.condition import BaseCondition, Condition
+
+if TYPE_CHECKING:
+    from ..client import ThinkThinkSyn
+
+current_thinkthinksyn_client: ContextVar['ThinkThinkSyn|None'] = ContextVar('current_thinkthinksyn_client', default=None)
+'''Context variable for the current ThinkThinkSyn client.'''
 
 class NodeFilterPolicy(TypedDict, total=False):
     '''
@@ -193,7 +200,6 @@ def tidy_json_schema(schema: dict)->JsonSchema:
         schema['allOf'] = schema.pop('all_of')
     
     return schema  # type: ignore
-
 
 
 __all__ = [

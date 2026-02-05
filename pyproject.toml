@@ -23,8 +23,13 @@ dependencies = [
   "moviepy",
   "noisereduce",
   "json-repair",
-  "audioop-lts",
+  "audioop-lts; python_version >= '3.13'",
   "pyvips[binary]",
+  "pymilvus==2.5.6",
+  "netifaces",
+  "sshtunnel",
+  "paramiko<4.0.0",
+  "dateutil",
 ]
 requires-python = ">= 3.11"
 authors = [

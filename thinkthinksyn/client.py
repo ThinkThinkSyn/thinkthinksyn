@@ -1,17 +1,17 @@
-import os
 import re
 import orjson
 import aiohttp
 import warnings
 import logging
 
-from urllib.parse import quote
-from functools import partial
 from pathlib import Path
+from urllib.parse import quote
+from functools import partial, wraps
+from dataclasses import dataclass
+from contextvars import copy_context
 from pydantic import BaseModel
 from pydantic.fields import PydanticUndefined   # type: ignore
 from pydantic.v1 import BaseModel as BaseModelV1
-from dataclasses import dataclass
 from types import UnionType
 from typing_extensions import Unpack
 from typing import (AsyncGenerator, TypeVar, TYPE_CHECKING, Sequence, TypeAlias, Any, overload, Literal,
@@ -21,7 +21,8 @@ from aiossechat import aiosseclient, SSEvent
 from .data_types import (CompletionInput, CompletionOutput, CompletionStreamOutput, LLMTool, ConditionProxy,
                          tidy_json_schema, EmbeddingInput, EmbeddingOutput, AIInput, EmbeddingModel, ChatMsg,
                          ChatMsgWithRole, ChatMsgMedia, ChatMsgMedias, detect_media_type)
-from .data_types.completion import _ChatMsgMediasList, _ChatMsgMedia
+from .data_types.completion import tidy_single_media, tidy_msg_medias
+from .data_types.base import current_thinkthinksyn_client
 
 from .common_utils.data_structs import (BaseCondition, Image, Audio, Video, Condition)
 from .common_utils.type_utils import (SerializableType, Empty, get_args, get_origin, check_type_is, get_pydantic_type_adapter)
@@ -37,80 +38,6 @@ _ST = TypeVar("_ST", bound=SerializableType)
 _Media: TypeAlias = Image | Audio | Video
 _PromptT: TypeAlias = str | _Media | ChatMsgMedia | ChatMsg | ChatMsgWithRole
 
-def _tidy_single_media(media: _ChatMsgMedia)->ChatMsgMedia:
-    if isinstance(media, (Audio, Image, Video)):
-        media_type = 'audio' if isinstance(media, Audio) else ('image' if isinstance(media, Image) else 'video')
-        return ChatMsgMedia(type=media_type, content=media.to_base64(url_scheme=True))
-    elif isinstance(media, dict):
-        media_type = detect_media_type(media.get('type', ''))
-        common_keys = ('content', 'data', 'url', 'base64',)
-        if media_type in ('image', 'audio', 'video'):
-            if media_type == 'image':
-                keys = common_keys + ('image', 'image_url', 'img', 'picture', 'image_data', 'photo')
-            elif media_type == 'audio':
-                keys = common_keys + ('audio', 'audio_url', 'sound', 'music', 'audio_data', 'voice')
-            elif media_type == 'video':
-                keys = common_keys + ('video', 'video_url', 'movie', 'clip', 'video_data')
-            
-            for k in keys:
-                if (data := media.get(k, None)) is not None:
-                    media.pop('type', None)
-                    media.pop('content', None)
-                    media.pop(k, None)
-                    if isinstance(data, (Image, Audio, Video)):
-                        data = data.to_base64(url_scheme=True)
-                    return dict(type='image', content=data, **media)  # type: ignore
-            raise ValueError(f"Cannot find image content in media dict. Expected keys: {keys}")
-        else:
-            raise ValueError(f"Unrecognized media type: {media.get('type', '')}")
-        
-    if isinstance(media, Path):
-        media = str(media)
-    if isinstance(media, str):
-        # decide media type
-        media_type, media_cls = None, None
-        if media.startswith('data:'):
-            media_type = media.split('/', 1)[0][5:]
-            if media_type == 'image':
-                media_cls = Image
-            elif media_type == 'audio':
-                media_cls = Audio
-            elif media_type == 'video':
-                media_cls = Video
-            else:
-                raise ValueError(f'Got invalid media type: {media_type}')
-        else:
-            if len(media) < 1024 and os.path.exists(media):
-                suffix = media[-5:].split('.')[-1].lower()
-                if (media_type:=detect_media_type(suffix)):
-                    if media_type == 'image':
-                        media_cls = Image
-                    elif media_type == 'audio':
-                        media_cls = Audio
-                    elif media_type == 'video':
-                        media_cls = Video
-                    else:
-                        raise ValueError(f'Got invalid media type: {media_type}')
-                raise ValueError(f'Cannot determine media type from path: {media}')
-            else:
-                raise ValueError(f'Cannot load media from string: `{media[64:]}...`')
-        return ChatMsgMedia(type=media_type, content=media_cls.Load(media))    # type: ignore
-    raise TypeError(f"Invalid media type: {type(media)}")
-
-def _tidy_msg_medias(medias: _ChatMsgMedia|_ChatMsgMediasList|ChatMsgMedias)->ChatMsgMedias:
-    if isinstance(medias, (list, tuple)):
-        return {i: _tidy_single_media(m) for i, m in enumerate(medias)}
-    elif isinstance(medias, dict):
-        first_key = next(iter(medias.keys()), None)
-        if not isinstance(first_key, int):
-            # single `ChatMsgMedia` dict
-            return {0: _tidy_single_media(medias)}  # type: ignore
-        return {k: _tidy_single_media(v) for k, v in medias.items()}    # type: ignore
-    elif isinstance(medias, (Image, Audio, Video, str, Path)):
-        return {0: _tidy_single_media(medias)}
-    else:
-        raise TypeError(f"Invalid medias type: {type(medias)}")
-
 def _tidy_single_msg(msg: _PromptT, default_role='user')->ChatMsgWithRole:
     if isinstance(msg, str):
         return ChatMsgWithRole(role=default_role, content=msg)
@@ -120,19 +47,19 @@ def _tidy_single_msg(msg: _PromptT, default_role='user')->ChatMsgWithRole:
         return ChatMsgWithRole(role=default_role, content='', medias={0: media})
     elif isinstance(msg, dict):
         if 'type' in msg:   # ChatMsgMedia
-            return ChatMsgWithRole(role=default_role, content='', medias={0: _tidy_single_media(msg)})
+            return ChatMsgWithRole(role=default_role, content='', medias={0: tidy_single_media(msg)})   # type: ignore
         else:   # ChatMsg
             role = msg.pop('role', default_role)
             content = msg.pop('content', msg.pop('contents', ''))
             curr_medias = {}
             if isinstance(content, (Image, Audio)):
                 content = ''
-                curr_medias[0] = _tidy_single_media(content)
+                curr_medias[0] = tidy_single_media(content)
             elif isinstance(content, dict) and 'type' in content:
                 content = ''
-                curr_medias[0] = _tidy_single_media(content)
+                curr_medias[0] = tidy_single_media(content)
             if (medias:= msg.pop('medias', None)) is not None:
-                extra_medias = _tidy_msg_medias(medias)    # type: ignore
+                extra_medias = tidy_msg_medias(medias)    # type: ignore
                 curr_medias.update(extra_medias)
             return ChatMsgWithRole(role=role, content=content, medias=curr_medias, **msg)  # type: ignore
     raise TypeError(f"Invalid prompt message type: {type(msg)}")
@@ -147,6 +74,21 @@ def _tidy_messages(prompt: _PromptT|Sequence[_PromptT], default_role='user')->li
             msgs.append(_tidy_single_msg(p, default_role=last_role))
             last_role = msgs[-1]['role']
         return msgs
+
+_F = TypeVar("_F", bound=Callable[..., Any])
+
+def _set_context(f: _F) -> _F:
+    def run_f(f, *args, **kwargs):
+        self = args[0]
+        current_thinkthinksyn_client.set(self)
+        return f(*args, **kwargs)
+    
+    @wraps(f)
+    def wrapper(*args, **kwargs):
+        ctx = copy_context()
+        r = ctx.run(run_f, f, *args, **kwargs)
+        return r
+    return wrapper  # type: ignore
 
 @dataclass
 class ThinkThinkSyn:
@@ -171,7 +113,7 @@ class ThinkThinkSyn:
     
     async def _request_ai(self, endpoint:str, payload: dict, return_type: type[_T])->_T:
         endpoint = endpoint.lstrip("/")
-        async with aiohttp.ClientSession() as session:
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=180)) as session:
             if self.apikey:
                 headers = {"Authorization": f"Bearer {self.apikey}"}
             else:
@@ -239,10 +181,13 @@ class ThinkThinkSyn:
             payload['tools'] = tool_info    # type: ignore
         return payload  # type: ignore
     
+    @_set_context
     async def completion(self, /, **payload: Unpack[CompletionInput])->CompletionOutput:
         '''
         Complete the given prompt.
         For supported params, please refer to `thinkthinksyn.data_types.CompletionInput`.
+        NOTE: if `openai_compatible` is set to True in the payload, the response format will follow OpenAI's format,
+            instead of `thinkthinksyn.data_types.CompletionOutput`.
         '''
         payload = self._validate_completion_input(**payload)
         return await self._request_ai(
@@ -251,6 +196,7 @@ class ThinkThinkSyn:
             return_type=CompletionOutput,
         )
     
+    @_set_context
     async def stream_completion(self, /, **payload: Unpack[CompletionInput])->AsyncGenerator[CompletionStreamOutput, None]:
         '''
         Stream completion for the given prompt.
@@ -305,6 +251,7 @@ class ThinkThinkSyn:
         **kwargs: Unpack[CompletionInput],
     ) -> tuple[_ST|_T, CompletionOutput]: ...
     
+    @_set_context
     async def json_complete(    # type: ignore
         self,
         prompt: _PromptT|Sequence[_PromptT],
@@ -523,6 +470,7 @@ class ThinkThinkSyn:
     # endregion
     
     # region embedding
+    @_set_context
     async def embedding(self, /, model: EmbeddingModel|str|None=None, **payload: Unpack[EmbeddingInput])->EmbeddingOutput:
         '''
         Get embedding for the given text.
@@ -563,6 +511,8 @@ class ThinkThinkSyn:
         )
     # endregion
     
-
+    # region text-to-speech
+    
+    # endregion
     
 __all__ = ["ThinkThinkSyn"]

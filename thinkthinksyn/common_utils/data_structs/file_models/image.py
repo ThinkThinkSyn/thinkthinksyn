@@ -607,9 +607,9 @@ if __name__ == '__main__':
         
         a = A(img=img)
         
-        print(len(str(a.model_dump())))     # in this moment, img is not loaded yet, will dump as url
-        print(img.size, img.mode)               # this will trigger loading
-        print(len(str(a.model_dump())))     # now img is loaded, so the dump is different
+        print(len(str(a.model_dump())))      # in this moment, img is not loaded yet, will dump as url
+        print(img.size, img.mode)                   # this will trigger loading
+        print(len(str(a.model_dump())))      # now img is loaded, so the dump is different
     
     test_load_svg()
     test()

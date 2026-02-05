@@ -16,5 +16,10 @@ json_repair
 moviepy
 ffmpeg_downloader
 noisereduce
-audioop-lts
+audioop-lts; python_version>='3.13'
 pyvips[binary]
+netifaces
+sshtunnel
+paramiko<4.0.0
+dateutil
+orjson

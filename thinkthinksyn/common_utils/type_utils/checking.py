@@ -164,86 +164,126 @@ def get_type_from_str(t: str, raise_err: bool = False):  # type: ignore
             return t
     return try_t
 
+_empty_val = object()  # type: ignore
 
 @no_type_check
-def _tidy_type(t, arg_matches: dict | None = None, _rec=False):
+def _tidy_type(
+    t, 
+    arg_matches: dict | None = None,
+    handled_ts: dict[int, Any] | None = None, 
+    _rec=False
+):
     arg_matches = arg_matches or {}
+    handled_ts = handled_ts or {}
+    t_id = id(t)
+    if t_id in handled_ts:    
+        curr = handled_ts[t_id]
+        if curr is _empty_val: # to avoid infinite recursion
+            return (t,)
+        return curr
+    
+    handled_ts[t_id] = _empty_val
+    
     if _save_isinstance(t, str):
         t = get_type_from_str(t)
         if not _save_isinstance(t, str):
-            new_t = _tidy_type(t, arg_matches, _rec=True)
+            new_t = _tidy_type(t, arg_matches, handled_ts, _rec=True)
             if not _rec and len(new_t) > 1:
+                handled_ts[t_id] = (t,)
                 return (t,)
+            else:
+                handled_ts[t_id] = new_t
             return new_t
+        else:
+            handled_ts[t_id] = (t,)
         return (t,)  # type: ignore
     
     try:
         if t in arg_matches:
             v = arg_matches[t]
-            if isinstance(v, tuple):
+            if isinstance(v, (tuple, list)):
                 if len(v) > 1 and not _rec:
                     return (t,)
-                return v
+                handled_ts[t_id] = tuple(v)
+                return handled_ts[t_id]
+            else:
+                handled_ts[t_id] = (v,)
             return (v,)  # type: ignore
     except:
         pass
     
     if isinstance(t, TypeAliasType):
         if not t.__type_params__:
-            new_t = _tidy_type(t.__value__, arg_matches, _rec=True)  # type: ignore
+            new_t = _tidy_type(t.__value__, arg_matches, handled_ts, _rec=True)  # type: ignore
             if not _rec and len(new_t) > 1:
-                return (t.__value__,)
-            return new_t  # type: ignore
+                handled_ts[t_id] = (t.__value__,)
+            else:
+                handled_ts[t_id] = new_t
+            return handled_ts[t_id]
         else:
             tidied = []
             for a in t.__type_params__:
-                tidied.extend(_tidy_type(a, arg_matches, _rec=True))  # type: ignore
+                tidied.extend(_tidy_type(a, arg_matches, handled_ts, _rec=True))  # type: ignore
             if tidied:
                 o = t.__value__.__origin__ or t.__value__
-                return (o[*tidied],)
-            return (t,)
+                handled_ts[t_id] = (o[*tidied],)
+            else:
+                handled_ts[t_id] = (t,)
+            return handled_ts[t_id]
 
     if isinstance(t, _UnionGenericAlias):
         tidied = []
         for a in tp_get_args(t):
-            tidied.extend(_tidy_type(a, arg_matches, _rec=True))  # type: ignore
+            tidied.extend(_tidy_type(a, arg_matches, handled_ts, _rec=True))  # type: ignore
         if tidied:
-            return (Union[*tidied],)  # type: ignore
-        return (t,)
+            try:
+                ut = (Union[*tidied],)  # type: ignore
+                handled_ts[t_id] = ut
+                return ut
+            except TypeError:
+                handled_ts[t_id] = (t,)
+        else:
+            handled_ts[t_id] = (t,)
+        return handled_ts[t_id]
 
     if isinstance(t, _UnpackGenericAlias):
         tidied = []
         for a in tp_get_args(t):
-            tidied.extend(_tidy_type(a, arg_matches, _rec=True))  # type: ignore
+            tidied.extend(_tidy_type(a, arg_matches, handled_ts, _rec=True))  # type: ignore
         if _rec:
             return tuple(tidied)
         else:
             if len(tidied) == 1:
-                return (tidied[0],)
+                handled_ts[t_id] = (tidied[0],)
             else:
-                return (t,)
-
+                handled_ts[t_id] = (t,)
+            return handled_ts[t_id]
+        
     if isinstance(t, _AnnotatedAlias):
         args = tp_get_args(t)
         first_arg, remaining = args[0], args[1:]
-        tidied_first_arg = _tidy_type(first_arg, arg_matches, _rec=True)[0]
-        return (Annotated[tidied_first_arg, *remaining],)  # type: ignore
+        tidied_first_arg = _tidy_type(first_arg, arg_matches, handled_ts, _rec=True)[0]
+        handled_ts[t_id] = (Annotated[tidied_first_arg, *remaining],)  # type: ignore
+        return handled_ts[t_id]
     
     if isinstance(t, _CallableGenericAlias):
         t_args = tp_get_args(t)
         params, ret = t_args
-        tidied_ret = _tidy_type(ret, arg_matches, _rec=True)[0]
+        tidied_ret = _tidy_type(ret, arg_matches, handled_ts, _rec=True)[0]
         if isinstance(params, ParamSpec):
-            params = _tidy_type(params, arg_matches, _rec=True)[0]
+            params = _tidy_type(params, arg_matches, handled_ts, _rec=True)[0]
         if params != Ellipsis and isinstance(params, Sequence):
             tidied_params = []
             for p in params:
-                tidied_params.extend(_tidy_type(p, arg_matches, _rec=True))  # type: ignore
-            return (Callable[tuple(tidied_params), tidied_ret],)  # type: ignore
+                tidied_params.extend(_tidy_type(p, arg_matches, handled_ts, _rec=True))  # type: ignore
+            ct = (Callable[tuple(tidied_params), tidied_ret],)  # type: ignore
         else:
-            return (Callable[..., tidied_ret],)  # type: ignore
+            ct = (Callable[..., tidied_ret],)  # type: ignore
+        handled_ts[t_id] = ct
+        return ct
 
     if isinstance(t, _LiteralGenericAlias):
+        handled_ts[t_id] = (t,)
         return (t,)  # type: ignore
     
     if isinstance(t, (GenericAlias, _GenericAlias)):
@@ -251,7 +291,7 @@ def _tidy_type(t, arg_matches: dict | None = None, _rec=False):
         if t_args:
             tidied = []
             for a in t_args:
-                tidied.extend(_tidy_type(a, arg_matches, _rec=True))  # type: ignore
+                tidied.extend(_tidy_type(a, arg_matches, handled_ts, _rec=True))  # type: ignore
             t_args = tuple(tidied)
 
         if isinstance(t_origin, TypeAliasType):
@@ -260,25 +300,29 @@ def _tidy_type(t, arg_matches: dict | None = None, _rec=False):
                 if len(params) == 1 and isinstance(params[0], TypeVarTuple):
                     t_args = [t_args]
                 else:
-                    raise ValueError(
-                        f"Type parameters {params} do not match arguments {t_args} for {t_origin}"
-                    )
+                    raise ValueError(f"Type parameters {params} do not match arguments {t_args} for {t_origin}")
             arg_matches.update({p: a for p, a in zip(params, t_args)})  # type: ignore
-            new_t = _tidy_type(t_origin.__value__, arg_matches, _rec=True)  # type: ignore
+            new_t = _tidy_type(t_origin.__value__, arg_matches, handled_ts, _rec=True)  # type: ignore
             if not _rec and len(new_t) > 1:
                 if not params:
-                    return (t_origin.__value__,)
-                return (t,)
-            return new_t  # type: ignore
+                    handled_ts[t_id] = (t_origin.__value__,)
+                else:
+                    handled_ts[t_id] = (t,)
+            else:
+                handled_ts[t_id] = new_t
+            return handled_ts[t_id]
         else:
-            t_origin = _tidy_type(t_origin, arg_matches, _rec=True)[0]
+            t_origin = _tidy_type(t_origin, arg_matches, handled_ts, _rec=True)[0]
         if t_args:
             if t_origin in (Final, ClassVar):
-                return (t_origin[t_args[0]],)   # type: ignore
-            return (t_origin[*t_args],)  # type: ignore
-        return (t_origin,)  # type: ignore
-    
-    return (t,)
+                handled_ts[t_id] = (t_origin[t_args[0]],)  # type: ignore
+            else:
+                handled_ts[t_id] = (t_origin[*t_args],)  # type: ignore
+        else:
+            handled_ts[t_id] = (t_origin,)
+    else:
+        handled_ts[t_id] = (t,)
+    return handled_ts[t_id]
 
 
 def _is_protocol_type(t):
@@ -847,9 +891,7 @@ def check_type_is(sub_cls, super_cls):
     try:
         return _direct_check_sub_cls(sub_cls, super_cls)
     except TypeError as e:
-        _logger.debug(
-            f"Error when checking sub class `{sub_cls}` and super class `{super_cls}`. {type(e).__name__}: {str(e)}"
-        )
+        _logger.debug(f"Error when checking sub class `{sub_cls}` and super class `{super_cls}`. {type(e).__name__}: {str(e)}")
         return False
 
 

@@ -210,14 +210,18 @@ def get_cls_annotations(
     except:
         bases = []
     
+    type_params = None
     if args := tp_get_args(cls):
         type_params = getattr(origin, "__type_params__", None)
-        if type_params:
-            if len(type_params) != len(args):
-                if len(type_params) == 1 and isinstance(type_params[0], TypeVarTuple):
-                    args = tuple([args])
-                else:
-                    raise ValueError(f"Type parameters {type_params} do not match arguments {args} for {origin}")
+    if not args and (pd_generic_meta:=getattr(origin, "__pydantic_generic_metadata__", None)):
+        # special case for pydantic generic models
+        args = pd_generic_meta.get("args", None)
+        if not type_params and bases and (base_params:=getattr(bases[0], '__parameters__', None)):
+            type_params = base_params
+    if type_params and args:
+        if len(type_params) == len(args):
+            if len(type_params) == 1 and isinstance(type_params[0], TypeVarTuple):
+                args = tuple([args])
             for t, a in zip(type_params, args):
                 arg_matches[t] = a
     

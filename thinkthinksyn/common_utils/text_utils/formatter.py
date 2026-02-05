@@ -4,7 +4,7 @@ import json_repair
 
 from pydantic import BaseModel
 from typing import (Final, TYPE_CHECKING, overload, Literal, Generator, AsyncGenerator, AsyncIterable, 
-                    Iterable, Sequence)
+                    Iterable, Sequence, TypeAlias)
 
 
 def readable_formatting(title: str):
@@ -264,11 +264,11 @@ class StreamTagConfig(BaseModel):
         if not self.tag_name:
             self.tag_name = self.start
             
-type _TextGeneratorT = Generator[str, None, None]| Iterable[str]
-type _AsyncTextGeneratorT = AsyncGenerator[str, None]| AsyncIterable[str]
-type _SyncOrAsyncTextGeneratorT = _TextGeneratorT | _AsyncTextGeneratorT
+_TextGeneratorT: TypeAlias = Generator[str, None, None]| Iterable[str]
+_AsyncTextGeneratorT: TypeAlias = AsyncGenerator[str, None]| AsyncIterable[str]
+_SyncOrAsyncTextGeneratorT: TypeAlias = _TextGeneratorT | _AsyncTextGeneratorT
 _MAX_UNKNOWN_HTML_TAG_LENGTH: Final[int] = 64
-type _TagData = tuple[str, str, str] # (start, end, tag_name)
+_TagData: TypeAlias = tuple[str, str, str] # (start, end, tag_name)
 
 def _extract_tag(chunk: str, valid_tags: set[StreamTagConfig], context: dict)->Generator[StreamTagExtraction, None, None]:
     chars = chunk
