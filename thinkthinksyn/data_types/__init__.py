@@ -7,3 +7,5 @@ from .embedding import *
 from .completion import *
 
 from .llm_tools import *
+
+from .t2s import *

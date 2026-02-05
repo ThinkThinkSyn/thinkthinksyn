@@ -20,7 +20,8 @@ from aiossechat import aiosseclient, SSEvent
 
 from .data_types import (CompletionInput, CompletionOutput, CompletionStreamOutput, LLMTool, ConditionProxy,
                          tidy_json_schema, EmbeddingInput, EmbeddingOutput, AIInput, EmbeddingModel, ChatMsg,
-                         ChatMsgWithRole, ChatMsgMedia, ChatMsgMedias, detect_media_type)
+                         ChatMsgWithRole, ChatMsgMedia, ChatMsgMedias, detect_media_type, T2SModel, T2SInput, T2SOutput,
+                         T2SStreamOutput)
 from .data_types.completion import _ChatMsgMediasList, _ChatMsgMedia
 
 from .common_utils.data_structs import (BaseCondition, Image, Audio, Video, Condition)
@@ -561,6 +562,87 @@ class ThinkThinkSyn:
             payload=payload,    # type: ignore
             return_type=EmbeddingOutput,
         )
+    # endregion
+    
+    # region t2s
+    async def t2s(self, /, model: T2SModel|str|None=None, **payload: Unpack[T2SInput])->T2SOutput:
+        '''
+        Text-to-speech synthesis for the given text.
+        NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
+             which may not be an optimal choice. It is recommended to provide at least one of them. 
+        '''
+        final_selected_model: str|None = None
+        model_filter = payload.get('model_filter', None)
+        if model is not None:
+            if isinstance(model, T2SModel):
+                final_selected_model = model.Name   # type: ignore
+                if isinstance(final_selected_model, ConditionProxy):
+                    final_selected_model = None
+        if not final_selected_model and model_filter is not None:
+            if isinstance(model_filter, BaseCondition):
+                for subcls in T2SModel.__subclasses__():
+                    if model_filter.validate(subcls, fuzzy=True):
+                        final_selected_model = subcls.Name   # type: ignore
+                        break
+        if not final_selected_model:
+            default = T2SModel.Default()
+            final_selected_model = default.Name
+            if '/' in final_selected_model:     # to avoid url path issues
+                if (alias := default.Alias):
+                    final_selected_model = alias[0]
+
+            warnings.warn(
+                "No T2S model specified via `model` or `model_filter`. "
+                f"Using default model `{final_selected_model}`. "
+                "It is recommended to specify at least one of them for better results.",
+                category=UserWarning,
+            )
+        
+        return await self._request_ai(
+            endpoint=f"/t2s/{quote(final_selected_model)}",
+            payload=payload,    # type: ignore
+            return_type=T2SOutput,
+        )
+        
+    async def stream_t2s(self, /, model: T2SModel|str|None=None, **payload: Unpack[T2SInput])->AsyncGenerator[T2SStreamOutput, None]:
+        '''
+        Stream text-to-speech synthesis for the given text.
+        NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
+             which may not be an optimal choice. It is recommended to provide at least one of them. 
+        '''
+        final_selected_model: str|None = None
+        model_filter = payload.get('model_filter', None)
+        if model is not None:
+            if isinstance(model, T2SModel):
+                final_selected_model = model.Name   # type: ignore
+                if isinstance(final_selected_model, ConditionProxy):
+                    final_selected_model = None
+        if not final_selected_model and model_filter is not None:
+            if isinstance(model_filter, BaseCondition):
+                for subcls in T2SModel.__subclasses__():
+                    if model_filter.validate(subcls, fuzzy=True):
+                        final_selected_model = subcls.Name   # type: ignore
+                        break
+        if not final_selected_model:
+            default = T2SModel.Default()
+            final_selected_model = default.Name
+            if '/' in final_selected_model:     # to avoid url path issues
+                if (alias := default.Alias):
+                    final_selected_model = alias[0]
+
+            warnings.warn(
+                "No T2S model specified via `model` or `model_filter`. "
+                f"Using default model `{final_selected_model}`. "
+                "It is recommended to specify at least one of them for better results.",
+                category=UserWarning,
+            )
+        
+        async for event in self._stream_request_ai(
+            endpoint=f"/t2s/{quote(final_selected_model)}",
+            payload=payload,    # type: ignore
+        ):
+            if (data := event.data):
+                yield orjson.loads(data)  # type: ignore
     # endregion
     
 

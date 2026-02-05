@@ -119,7 +119,16 @@ class S2TModel(_AIModel):
 StreamableAudioFormat: TypeAlias = Literal["wav", "opus", "aac", "mp3"]
 '''Supported streamable audio formats. Note that this is a subset of `AudioFormat`'''
 
-class T2SModel(_AIModel):
+class _ChildT2SModel(_ChildAIModel):
+    DefaultLang: str|None = None
+    DefaultSpeaker: str|None = None
+    MaxTextLen: int|None = None
+    SampleRate: int = 24000
+    SampleWidth: int = 2
+    Channels: int = 1
+    OutputFormat = 'wav'
+
+class T2SModel(_DefaultableAIModel[_ChildT2SModel]):
     '''
     Text-to-Speech model data type with condition proxies for its attributes.
     You can use these condition proxies to filter T2S models in thinkthinksyn backend,
@@ -203,12 +212,12 @@ __all__.extend(['WhisperV3Large'])
 
 # region t2s models
 class _CommonT2SModel(T2SModel):
-    DefaultLang = None
-    DefaultSpeaker = None
-    MaxTextLen = None
-    SampleRate = 24000
-    SampleWidth = 2
-    Channels = 1
+    DefaultLang: str|None = None
+    DefaultSpeaker: str|None = None
+    MaxTextLen: int|None = None
+    SampleRate: int = 24000
+    SampleWidth: int = 2
+    Channels: int = 1
     OutputFormat = 'wav'
 
 class XttsV2(_CommonT2SModel):
@@ -252,6 +261,8 @@ class CosyVoiceV2(_CommonT2SModel):
         'sichuan', 'shanghai', 'tianjin', 'changsha', 'zhengzhou'
     )
     SampleRate = 24000
+    
+T2SModel.RegisterDefault(XttsV2)
 
 __all__.extend(['XttsV2', 'CosyVoiceV2'])
 # endregion
