@@ -405,18 +405,88 @@ __all__ = ['Video']
 
 
 if __name__ == '__main__':
-    p = r"C:\Users\MSI-NB\Downloads\成品.mp4"
+    import wave
+    import numpy as np
+    import tempfile
+    
+    from PIL import Image as PILImage
+    from pathlib import Path
+    from io import BytesIO
+    from moviepy.video.VideoClip import ImageClip
+    from moviepy.audio.io.AudioFileClip import AudioFileClip
+    
     from .audio import Audio
-    audio = Audio.Load(p)
-    del audio
     
-    with open(p, 'rb') as f:
-        data = f.read()
-    video = Video.Load(data)
-    # video = Video.Load(p)
+    def _make_audio_wav_bytes(duration_sec: float = 0.5, sample_rate: int = 16000) -> bytes:
+        t = np.linspace(0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
+        wave_data = (0.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        pcm16 = np.clip(wave_data * 32767, -32768, 32767).astype(np.int16)
+
+        buf = BytesIO()
+        with wave.open(buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm16.tobytes())
+        return buf.getvalue()
+
+    def _make_image_png_bytes(width: int = 64, height: int = 64) -> bytes:
+        arr = np.zeros((height, width, 3), dtype=np.uint8)
+        arr[:, :, 1] = 180
+        img = PILImage.fromarray(arr, mode='RGB')
+        buf = BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
+    def _make_video_mp4_bytes(image_png_bytes: bytes, audio_wav_bytes: bytes, duration_sec: float = 0.5) -> bytes:
+        with tempfile.TemporaryDirectory(prefix='video_test') as td:
+            tmp_dir = Path(td)
+            image_path = tmp_dir / 'frame.png'
+            audio_path = tmp_dir / 'audio.wav'
+            video_path = tmp_dir / 'video.mp4'
+
+            image_path.write_bytes(image_png_bytes)
+            audio_path.write_bytes(audio_wav_bytes)
+
+            arr = np.array(PILImage.open(BytesIO(image_png_bytes)).convert('RGB'))
+            clip = ImageClip(arr)
+            if hasattr(clip, 'with_duration'):
+                clip = clip.with_duration(duration_sec)
+            else:
+                clip = clip.set_duration(duration_sec)  # type: ignore[attr-defined]
+
+            audio_clip = AudioFileClip(str(audio_path))
+            if hasattr(audio_clip, 'subclipped'):
+                audio_clip = audio_clip.subclipped(0, duration_sec)
+            else:
+                audio_clip = audio_clip.subclip(0, duration_sec)  # type: ignore[attr-defined]
+
+            if hasattr(clip, 'with_audio'):
+                clip = clip.with_audio(audio_clip)
+            else:
+                clip = clip.set_audio(audio_clip)  # type: ignore[attr-defined]
+
+            clip.write_videofile(
+                str(video_path),
+                codec='libx264',
+                audio_codec='aac',
+                fps=24,
+                logger=None,
+            )
+
+            try:
+                clip.close()
+            except Exception:
+                pass
+            try:
+                audio_clip.close()
+            except Exception:
+                pass
+
+            return video_path.read_bytes()
     
-    print(video.duration, video.fps, video.size)
-    print(len(video.to_bytes()))
-    print(len(video.to_base64()))    
-    print(len(video.to_bytes('avi')))
-    print(len(video.to_base64('mov')))
+    audio_bytes = _make_audio_wav_bytes()
+    image_bytes = _make_image_png_bytes()
+    video_bytes = _make_video_mp4_bytes(image_bytes, audio_bytes)
+    video = Video.Load(video_bytes)
+    print(f"Video duration: {video.duration}s, fps: {video.fps}, size: {video.size}, rotation: {video.rotation}")

@@ -560,7 +560,7 @@ class _DeferImageLoader:
     @classmethod
     def __get_pydantic_core_schema__(cls, source, handler):
         def validator(data):
-            raise ValueError('DeferImageLoader cannot be directly validated. It can only be used as a placeholder for deferred loading of Image.')
+            return Image.Load(data)   # type: ignore
         
         def serializer(image: '_DeferImageLoader'):
             if image.__real_image__:
@@ -587,6 +587,16 @@ __all__ = ['Image', 'CommonImgFormat', 'ImageColorMode']
 
 
 if __name__ == '__main__':
+    from pydantic import BaseModel
+        
+    def _make_image_png_bytes(width: int = 64, height: int = 64) -> bytes:
+        arr = np.zeros((height, width, 3), dtype=np.uint8)
+        arr[:, :, 1] = 180
+        img = PILImage.fromarray(arr, mode='RGB')
+        buf = BytesIO()
+        img.save(buf, format='PNG')
+        return buf.getvalue()
+
     def test_load_svg():
         svg = '''<svg height="100" width="100">
         <circle r="45" cx="50" cy="50" stroke="green" stroke-width="3" fill="red" />
@@ -595,13 +605,10 @@ if __name__ == '__main__':
         print(img.size, img.mode)
         
     def test():
-        from pydantic import BaseModel
         class A(BaseModel):
             img: Image
-        
-        img_url = 'https://api.thinkthinksyn.com/resources/tts/logo512.png'
-        
-        img = Image.Load(img_url)
+                
+        img = Image.Load(_make_image_png_bytes())
         print(isinstance(img, _DeferImageLoader))   # True
         print(isinstance(img, Image))               # True
         

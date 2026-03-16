@@ -442,24 +442,24 @@ async def save_get(
     '''
     if isinstance(source, bytes):
         return await save_get_bytes(source, out, max_size, timeout)
-    elif isinstance(source, str):
+    if isinstance(source, str):
         if source.startswith(('http://', 'https://', 'ftp://', 'ftps://')):
             return await save_get_url(source, out, max_size, timeout, 
                                       whitelist_domains=whitelist_domains, blacklist_domains=blacklist_domains)
         elif source.startswith('data:') and ';base64,' in source[:64]:
             b64_data = source.split('base64,', 1)[1]
             return await save_get_base64(b64_data, out, max_size, timeout)
-        elif ('/' not in source) and ('\\' not in source) and len(source) % 4 == 0:
+        if len(source) % 4 == 0:
             try:
                 base64.b64decode(source, validate=True)
                 return await save_get_base64(source, out, max_size, timeout)
             except:
                 pass
-        else:
+        if len(source) < 512:
             # assume it's a file path
             source_path = Path(source)
             if not source_path.exists():
-                raise ValueError("Unknown source type or file path too long (>260 characters)")
+                raise ValueError("Unknown source type or file path too long (>512 characters)")
         return await save_get_path(source_path, out, max_size, timeout, 
                                    whitelist_dirs=whitelist_dirs, blacklist_dirs=blacklist_dirs)
     elif isinstance(source, Path):

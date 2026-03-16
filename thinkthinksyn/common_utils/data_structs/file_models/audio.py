@@ -513,13 +513,15 @@ _audio_dir = set(dir(Audio))
 _audio_dir.update(AudioSegment.__annotations__.keys())
 
 class _DeferAudioLoader:
-    __audio_source__: AcceptableFileSource
+    __audio_source__: AcceptableFileSource|Audio
     __real_audio__: Audio|None = None
     
-    def __init__(self, source: AcceptableFileSource):
+    def __init__(self, source: AcceptableFileSource|Audio):
         if isinstance(source, _DeferAudioLoader):
             self.__real_audio__ = source.__real_audio__
             self.__audio_source__ = source.__audio_source__
+        elif isinstance(source, Audio):
+            self.__audio_source__ = self.__real_audio__ = source
         else:
             self.__audio_source__ = source
     
@@ -544,7 +546,7 @@ class _DeferAudioLoader:
     @classmethod
     def __get_pydantic_core_schema__(cls, source, handler):
         def validator(data):
-            raise ValueError('DeferAudioLoader cannot be directly validated. It can only be used as a placeholder for deferred loading of Audio.')
+            return Audio.Load(data)
         
         def serializer(audio: '_DeferAudioLoader'):
             if audio.__real_audio__:
@@ -576,13 +578,28 @@ __all__ = ['Audio', 'AudioFormat', 'StreamableAudioFormat']
 
 
 if __name__ == '__main__':
+    import wave
+    import numpy as np
+    from pydantic import BaseModel
+    
+    def _make_audio_wav_bytes(duration_sec: float = 0.5, sample_rate: int = 16000) -> bytes:
+        t = np.linspace(0, duration_sec, int(sample_rate * duration_sec), endpoint=False)
+        wave_data = (0.2 * np.sin(2 * np.pi * 440 * t)).astype(np.float32)
+        pcm16 = np.clip(wave_data * 32767, -32768, 32767).astype(np.int16)
+
+        buf = BytesIO()
+        with wave.open(buf, 'wb') as wf:
+            wf.setnchannels(1)
+            wf.setsampwidth(2)
+            wf.setframerate(sample_rate)
+            wf.writeframes(pcm16.tobytes())
+        return buf.getvalue()
+
     def test():
-        from pydantic import BaseModel
         class A(BaseModel):
             audio: Audio
         
-        audio_url = 'https://api.thinkthinksyn.com/resources/tts/ab_asr_address_yue.wav'
-        audio = Audio.Load(audio_url)
+        audio = Audio.Load(_make_audio_wav_bytes())
         
         print(isinstance(audio, _DeferAudioLoader))   # True
         print(isinstance(audio, Audio))               # True
