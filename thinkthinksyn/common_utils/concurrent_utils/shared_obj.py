@@ -9,7 +9,10 @@ from multiprocessing.managers import BaseManager, BaseProxy
 from typing import Self, ClassVar, TYPE_CHECKING, Any, Generator, Callable, TypeVar
 from typing_extensions import override
 
-from .file_lock import FileCrossProcessLock
+try:
+    from .file_lock import FileCrossProcessLock
+except ImportError:
+    from file_lock import FileCrossProcessLock
 
 _logger = logging.getLogger(__name__)
 

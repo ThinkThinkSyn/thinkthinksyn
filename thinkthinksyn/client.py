@@ -22,6 +22,7 @@ from .data_types import (CompletionInput, CompletionOutput, CompletionStreamOutp
                          tidy_json_schema, EmbeddingInput, EmbeddingOutput, AIInput, EmbeddingModel, ChatMsg,
                          ChatMsgWithRole, ChatMsgMedia, ChatMsgMedias, detect_media_type, T2SModel, T2SInput, T2SOutput,
                          T2SStreamOutput)
+from .data_types.models import _DefaultableAIModel, _CommonT2SModel
 from .data_types.completion import _ChatMsgMediasList, _ChatMsgMedia
 
 from .common_utils.data_structs import (BaseCondition, Image, Audio, Video, Condition)
@@ -523,6 +524,29 @@ class ThinkThinkSyn:
             return json_r  # type: ignore
     # endregion
     
+    def _search_defaultable_model(
+        self, 
+        model_or_filter: str|Condition|BaseCondition|type[_DefaultableAIModel]|_DefaultableAIModel, 
+        model_cls: type[_DefaultableAIModel]
+    )->str|None:
+        if isinstance(model_or_filter, _DefaultableAIModel):
+            return model_or_filter.Name   # type: ignore
+        elif isinstance(model_or_filter, type) and issubclass(model_or_filter, _DefaultableAIModel):
+            return model_or_filter.Default().Name   # type: ignore
+        if isinstance(model_or_filter, str):
+            for subcls in model_cls.__subclasses__():
+                if isinstance(subcls.Name, str):
+                    if model_or_filter == subcls.Name:
+                        return subcls.Name   # type: ignore
+                if isinstance(subcls.Alias, (list, tuple)):
+                    if model_or_filter in (alias := getattr(subcls, 'Alias', [])):
+                        return subcls.Name  # type: ignore
+        elif isinstance(model_or_filter, (BaseCondition, Condition)):
+            for subcls in model_cls.__subclasses__():
+                if model_or_filter.validate(subcls, fuzzy=True):
+                    return subcls.Name   # type: ignore
+        return None
+    
     # region embedding
     async def embedding(self, /, model: EmbeddingModel|str|None=None, **payload: Unpack[EmbeddingInput])->EmbeddingOutput:
         '''
@@ -530,19 +554,14 @@ class ThinkThinkSyn:
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
              which may not be an optimal choice. It is recommended to provide at least one of them. 
         '''
-        final_selected_model: str|None = None
         model_filter = payload.get('model_filter', None)
-        if model is not None:
-            if isinstance(model, EmbeddingModel):
-                final_selected_model = model.Name   # type: ignore
-                if isinstance(final_selected_model, ConditionProxy):
-                    final_selected_model = None
-        if not final_selected_model and model_filter is not None:
-            if isinstance(model_filter, BaseCondition):
-                for subcls in EmbeddingModel.__subclasses__():
-                    if model_filter.validate(subcls, fuzzy=True):
-                        final_selected_model = subcls.Name   # type: ignore
-                        break
+        if model:
+            final_selected_model = self._search_defaultable_model(model, EmbeddingModel)
+            if not final_selected_model and model_filter:
+                final_selected_model = self._search_defaultable_model(model_filter, EmbeddingModel)
+        elif model_filter:
+            final_selected_model = self._search_defaultable_model(model_filter, EmbeddingModel)
+        
         if not final_selected_model:
             default = EmbeddingModel.Default()
             final_selected_model = default.Name
@@ -571,19 +590,14 @@ class ThinkThinkSyn:
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
              which may not be an optimal choice. It is recommended to provide at least one of them. 
         '''
-        final_selected_model: str|None = None
         model_filter = payload.get('model_filter', None)
-        if model is not None:
-            if isinstance(model, T2SModel):
-                final_selected_model = model.Name   # type: ignore
-                if isinstance(final_selected_model, ConditionProxy):
-                    final_selected_model = None
-        if not final_selected_model and model_filter is not None:
-            if isinstance(model_filter, BaseCondition):
-                for subcls in T2SModel.__subclasses__():
-                    if model_filter.validate(subcls, fuzzy=True):
-                        final_selected_model = subcls.Name   # type: ignore
-                        break
+        if model:
+            final_selected_model = self._search_defaultable_model(model, _CommonT2SModel)
+            if not final_selected_model and model_filter:
+                final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+        elif model_filter:
+            final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+        
         if not final_selected_model:
             default = T2SModel.Default()
             final_selected_model = default.Name
@@ -610,19 +624,14 @@ class ThinkThinkSyn:
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
              which may not be an optimal choice. It is recommended to provide at least one of them. 
         '''
-        final_selected_model: str|None = None
         model_filter = payload.get('model_filter', None)
-        if model is not None:
-            if isinstance(model, T2SModel):
-                final_selected_model = model.Name   # type: ignore
-                if isinstance(final_selected_model, ConditionProxy):
-                    final_selected_model = None
-        if not final_selected_model and model_filter is not None:
-            if isinstance(model_filter, BaseCondition):
-                for subcls in T2SModel.__subclasses__():
-                    if model_filter.validate(subcls, fuzzy=True):
-                        final_selected_model = subcls.Name   # type: ignore
-                        break
+        if model:
+            final_selected_model = self._search_defaultable_model(model, _CommonT2SModel)
+            if not final_selected_model and model_filter:
+                final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+        elif model_filter:
+            final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+
         if not final_selected_model:
             default = T2SModel.Default()
             final_selected_model = default.Name

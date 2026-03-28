@@ -3,14 +3,14 @@ import time
 
 from io import TextIOWrapper
 from typing import no_type_check
-from abc import ABC, abstractmethod
+from abc import ABC
 
 if os.name != 'nt':
     import fcntl
     _TEMP_DIR = os.getenv('TMPDIR', '/tmp')
 else:
     _TEMP_DIR = os.getenv('TEMP', '/tmp')
-_DEFAULT_LOCK_DIR = ".cross_process_file_lock"
+_DEFAULT_LOCK_DIR = ".cross_process_lock"
 
 _BACKOFF = 0.001
 _MAX_BACKOFF = 0.01
@@ -97,27 +97,6 @@ class _FileCrossProcessLockBase(ABC):
                     return False
                 time.sleep(t)
                 t = min(t * 2, _MAX_BACKOFF)
-    
-    @abstractmethod
-    def acquire(
-        self, 
-        blocking: bool=True, 
-        timeout: int|float|None=None
-    )->bool: ...
-
-    @abstractmethod
-    def release(self) -> bool:...
-
-    @property
-    @abstractmethod
-    def locked(self) -> bool:...
-
-    def __enter__(self):
-        self.acquire()
-        return self
-
-    def __exit__(self, exc_type, exc_val, exc_tb):
-        self.release()
 
 
 class FileCrossProcessLock(_FileCrossProcessLockBase):
@@ -125,6 +104,13 @@ class FileCrossProcessLock(_FileCrossProcessLockBase):
     Cross-process lock using file locking mechanism with 
     platform-specific implementations for Unix-like systems & Windows.
     '''
+
+    def __init__(
+        self, 
+        name: str, 
+        lock_dir: str|None=None,
+    ):
+        super().__init__(name, lock_dir, ".lock")
 
     @property
     def locked(self):
@@ -252,8 +238,14 @@ class FileCrossProcessLock(_FileCrossProcessLockBase):
         self.fd = None
         return success
 
+    def __enter__(self):
+        self.acquire()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        self.release()
 
-__all__ = ['FileCrossProcessLock']
+__all__ = ['FileCrossProcessLock', '_FileCrossProcessLockBase']
 
 
 if __name__.endswith('main__'):

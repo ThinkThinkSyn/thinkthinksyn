@@ -1,6 +1,6 @@
 import os
-import base64
 import wave
+import base64
 
 from test_utils import tts, register_testing, run_testing
 
@@ -12,7 +12,7 @@ module = 't2s'
 @register_testing(module)
 async def normal_test():
     text = 'hello world!'
-    result = (await tts.t2s(text=text))
+    result = (await tts.t2s(text=text, model='xtts'))
     audio_data = base64.b64decode(result['data'])
     with open(os.path.join(_tmp_path, 'normal_t2s_test.wav'), 'wb') as f:
         f.write(audio_data)
@@ -27,7 +27,7 @@ async def stream_test():
     channels = 1
     framerate = 24000
     sample_width = 2
-    async for chunk in tts.stream_t2s(text=text):
+    async for chunk in tts.stream_t2s(text=text, model='xtts'):
         audio_data += base64.b64decode(chunk['data'])
         data_log = chunk.copy()
         data_log.pop('data')
