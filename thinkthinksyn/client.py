@@ -527,24 +527,38 @@ class ThinkThinkSyn:
     def _search_defaultable_model(
         self, 
         model_or_filter: str|Condition|BaseCondition|type[_DefaultableAIModel]|_DefaultableAIModel, 
-        model_cls: type[_DefaultableAIModel]
-    )->str|None:
+        base_cls: type[_DefaultableAIModel]
+    )->type[_DefaultableAIModel]|None:
         if isinstance(model_or_filter, _DefaultableAIModel):
-            return model_or_filter.Name   # type: ignore
+            return type(model_or_filter)   # type: ignore
         elif isinstance(model_or_filter, type) and issubclass(model_or_filter, _DefaultableAIModel):
-            return model_or_filter.Default().Name   # type: ignore
+            return type(model_or_filter.Default())   # type: ignore
         if isinstance(model_or_filter, str):
-            for subcls in model_cls.__subclasses__():
+            for subcls in base_cls.__subclasses__():
                 if isinstance(subcls.Name, str):
                     if model_or_filter == subcls.Name:
-                        return subcls.Name   # type: ignore
+                        return subcls   # type: ignore
                 if isinstance(subcls.Alias, (list, tuple)):
                     if model_or_filter in (alias := getattr(subcls, 'Alias', [])):
-                        return subcls.Name  # type: ignore
+                        return subcls  # type: ignore
         elif isinstance(model_or_filter, (BaseCondition, Condition)):
-            for subcls in model_cls.__subclasses__():
+            for subcls in base_cls.__subclasses__():
                 if model_or_filter.validate(subcls, fuzzy=True):
-                    return subcls.Name   # type: ignore
+                    return subcls   # type: ignore
+        return None
+    
+    def _search_defaultable_model_request_name(
+        self, 
+        model_or_filter: str|Condition|BaseCondition|type[_DefaultableAIModel]|_DefaultableAIModel, 
+        model_cls: type[_DefaultableAIModel]
+    )->str|None:
+        mc = self._search_defaultable_model(model_or_filter, model_cls)
+        if mc:
+            name = mc.Name
+            if name and isinstance(name, str):
+                if ('/' in name) and (alias:= getattr(mc, 'Alias', None)):
+                    return alias[0]
+                return name
         return None
     
     # region embedding
@@ -556,19 +570,15 @@ class ThinkThinkSyn:
         '''
         model_filter = payload.get('model_filter', None)
         if model:
-            final_selected_model = self._search_defaultable_model(model, EmbeddingModel)
+            final_selected_model = self._search_defaultable_model_request_name(model, EmbeddingModel)
             if not final_selected_model and model_filter:
-                final_selected_model = self._search_defaultable_model(model_filter, EmbeddingModel)
+                final_selected_model = self._search_defaultable_model_request_name(model_filter, EmbeddingModel)
         elif model_filter:
-            final_selected_model = self._search_defaultable_model(model_filter, EmbeddingModel)
+            final_selected_model = self._search_defaultable_model_request_name(model_filter, EmbeddingModel)
         
         if not final_selected_model:
             default = EmbeddingModel.Default()
             final_selected_model = default.Name
-            if '/' in final_selected_model:     # to avoid url path issues
-                if (alias := default.Alias):
-                    final_selected_model = alias[0]
-
             warnings.warn(
                 "No embedding model specified via `model` or `model_filter`. "
                 f"Using default model `{final_selected_model}`. "
@@ -577,7 +587,7 @@ class ThinkThinkSyn:
             )
         
         return await self._request_ai(
-            endpoint=f"/embedding/{quote(final_selected_model)}",
+            endpoint=f"/embedding/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
             return_type=EmbeddingOutput,
         )
@@ -592,19 +602,15 @@ class ThinkThinkSyn:
         '''
         model_filter = payload.get('model_filter', None)
         if model:
-            final_selected_model = self._search_defaultable_model(model, _CommonT2SModel)
+            final_selected_model = self._search_defaultable_model_request_name(model, _CommonT2SModel)
             if not final_selected_model and model_filter:
-                final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+                final_selected_model = self._search_defaultable_model_request_name(model_filter, _CommonT2SModel)
         elif model_filter:
-            final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+            final_selected_model = self._search_defaultable_model_request_name(model_filter, _CommonT2SModel)
         
         if not final_selected_model:
             default = T2SModel.Default()
             final_selected_model = default.Name
-            if '/' in final_selected_model:     # to avoid url path issues
-                if (alias := default.Alias):
-                    final_selected_model = alias[0]
-
             warnings.warn(
                 "No T2S model specified via `model` or `model_filter`. "
                 f"Using default model `{final_selected_model}`. "
@@ -613,7 +619,7 @@ class ThinkThinkSyn:
             )
         
         return await self._request_ai(
-            endpoint=f"/t2s/{quote(final_selected_model)}",
+            endpoint=f"/t2s/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
             return_type=T2SOutput,
         )
@@ -626,19 +632,15 @@ class ThinkThinkSyn:
         '''
         model_filter = payload.get('model_filter', None)
         if model:
-            final_selected_model = self._search_defaultable_model(model, _CommonT2SModel)
+            final_selected_model = self._search_defaultable_model_request_name(model, _CommonT2SModel)
             if not final_selected_model and model_filter:
-                final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+                final_selected_model = self._search_defaultable_model_request_name(model_filter, _CommonT2SModel)
         elif model_filter:
-            final_selected_model = self._search_defaultable_model(model_filter, _CommonT2SModel)
+            final_selected_model = self._search_defaultable_model_request_name(model_filter, _CommonT2SModel)
 
         if not final_selected_model:
             default = T2SModel.Default()
             final_selected_model = default.Name
-            if '/' in final_selected_model:     # to avoid url path issues
-                if (alias := default.Alias):
-                    final_selected_model = alias[0]
-
             warnings.warn(
                 "No T2S model specified via `model` or `model_filter`. "
                 f"Using default model `{final_selected_model}`. "
@@ -647,7 +649,7 @@ class ThinkThinkSyn:
             )
         
         async for event in self._stream_request_ai(
-            endpoint=f"/t2s/{quote(final_selected_model)}",
+            endpoint=f"/t2s/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
         ):
             if (data := event.data):

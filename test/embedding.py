@@ -7,7 +7,7 @@ module = 'embedding'
 @register_testing(module)
 async def normal_test():
     text = 'hello world!'
-    embed = (await tts.embedding(text=text))['embedding']
+    embed = (await tts.embedding(text=text, model='zpoint'))['embedding']
     return (
         f'Input text: {text}.\n'
         f'Embedding length: {len(embed)}.\n'
@@ -21,8 +21,8 @@ async def compare_test():
         '那我还是感觉我们贵州牛逼',
         'hello world',
     ]
-    query_emb = array((await tts.embedding(text=query))['embedding'])
-    candidate_embeds = [array((await tts.embedding(text=c))['embedding']) for c in candidates]
+    query_emb = array((await tts.embedding(text=query, model='zpoint'))['embedding'])
+    candidate_embeds = [array((await tts.embedding(text=c, model='zpoint'))['embedding']) for c in candidates]
     sims = [query_emb.dot(c_emb)/(norm(query_emb)*norm(c_emb)) for c_emb in candidate_embeds]
     return (
         f'query: `{query}`\n'
