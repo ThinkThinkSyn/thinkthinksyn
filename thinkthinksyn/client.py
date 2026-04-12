@@ -171,29 +171,60 @@ class ThinkThinkSyn:
             payload['model_filter'] = model_filter
         return payload
     
-    async def _request_ai(self, endpoint:str, payload: dict, return_type: type[_T])->_T:
+    async def _request_ai(
+        self,
+        endpoint: str,
+        payload: dict,
+        return_type: type[_T],
+        session: aiohttp.ClientSession | None = None,
+    ) -> _T:
         endpoint = endpoint.lstrip("/")
-        async with aiohttp.ClientSession() as session:
-            if self.apikey:
-                headers = {"Authorization": f"Bearer {self.apikey}"}
-            else:
-                headers = {}
-            payload['stream'] = False
-            async with session.post(self._ai_url(endpoint), json=payload, headers=headers) as response:
-                response.raise_for_status()
-                r = await response.json()
-                if TYPE_CHECKING:
-                    assert isinstance(r, return_type)
-                return r
+        if self.apikey:
+            headers = {"Authorization": f"Bearer {self.apikey}"}
+        else:
+            headers = {}
+        payload['stream'] = False
 
-    async def _stream_request_ai(self, endpoint:str, payload: dict)->AsyncGenerator[SSEvent, None]:
+        if session is None:
+            async with aiohttp.ClientSession() as created_session:
+                async with created_session.post(self._ai_url(endpoint), json=payload, headers=headers) as response:
+                    response.raise_for_status()
+                    r = await response.json()
+                    if TYPE_CHECKING:
+                        assert isinstance(r, return_type)
+                    return r
+
+        async with session.post(self._ai_url(endpoint), json=payload, headers=headers) as response:
+            response.raise_for_status()
+            r = await response.json()
+            if TYPE_CHECKING:
+                assert isinstance(r, return_type)
+            return r
+
+    async def _stream_request_ai(
+        self,
+        endpoint: str,
+        payload: dict,
+        session: aiohttp.ClientSession | None = None,
+    ) -> AsyncGenerator[SSEvent, None]:
         endpoint = endpoint.lstrip("/")
         if self.apikey:
             headers = {"Authorization": f"Bearer {self.apikey}"}
         else:
             headers = {}
         payload['stream'] = True
-        async for e in aiosseclient(url=self._ai_url(endpoint), method='post', json=payload, headers=headers):
+
+        sse_kwargs: dict[str, Any] = {}
+        if session is not None:
+            sse_kwargs['session'] = session
+
+        async for e in aiosseclient(
+            url=self._ai_url(endpoint),
+            method='post',
+            json=payload,
+            headers=headers,
+            **sse_kwargs,
+        ):
             yield e
     # endregion
 
@@ -241,7 +272,12 @@ class ThinkThinkSyn:
             payload['tools'] = tool_info    # type: ignore
         return payload  # type: ignore
     
-    async def completion(self, /, **payload: Unpack[CompletionInput])->CompletionOutput:
+    async def completion(
+        self,
+        /,
+        session: aiohttp.ClientSession | None = None,
+        **payload: Unpack[CompletionInput],
+    ) -> CompletionOutput:
         '''
         Complete the given prompt.
         For supported params, please refer to `thinkthinksyn.data_types.CompletionInput`.
@@ -251,9 +287,15 @@ class ThinkThinkSyn:
             endpoint="/completion",
             payload=payload,    # type: ignore
             return_type=CompletionOutput,
+            session=session,
         )
     
-    async def stream_completion(self, /, **payload: Unpack[CompletionInput])->AsyncGenerator[CompletionStreamOutput, None]:
+    async def stream_completion(
+        self,
+        /,
+        session: aiohttp.ClientSession | None = None,
+        **payload: Unpack[CompletionInput],
+    ) -> AsyncGenerator[CompletionStreamOutput, None]:
         '''
         Stream completion for the given prompt.
         For supported params, please refer to `thinkthinksyn.data_types.CompletionInput`.
@@ -262,6 +304,7 @@ class ThinkThinkSyn:
         async for event in self._stream_request_ai(
             endpoint="/completion",
             payload=payload,    # type: ignore
+            session=session,
         ):
             if (data := event.data):
                 if event.event == 'message':
@@ -275,6 +318,7 @@ class ThinkThinkSyn:
         prompt: _PromptT|Sequence[_PromptT],
         /,
         return_type: type[_ST],
+        session: aiohttp.ClientSession | None = None,
         prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
@@ -288,6 +332,7 @@ class ThinkThinkSyn:
         /,
         return_type: type[_ST],
         return_raw_output: Literal[False],
+        session: aiohttp.ClientSession | None = None,
         prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
@@ -301,6 +346,7 @@ class ThinkThinkSyn:
         /,
         return_type: type[_ST],
         return_raw_output: Literal[True],
+        session: aiohttp.ClientSession | None = None,
         prompt_type: Literal["system", "user"] = "system",
         default: _T = None,
         retry: bool | int = 1,
@@ -313,6 +359,7 @@ class ThinkThinkSyn:
         /,
         return_type: type,
         return_raw_output: bool = False,
+        session: aiohttp.ClientSession | None = None,
         prompt_type: Literal["system", "user"] = "system",
         default: Any = None,
         retry: bool | int = 1,
@@ -463,6 +510,7 @@ class ThinkThinkSyn:
                 return await self.json_complete(
                     prompt,
                     return_type=return_type,
+                    session=session,
                     prompt_type=prompt_type,
                     default=default,
                     return_raw_output=return_raw_output,  # type: ignore
@@ -476,7 +524,7 @@ class ThinkThinkSyn:
             return default  # type: ignore
         
         try:
-            r: CompletionOutput = await self.completion(**payload)  # type: ignore
+            r: CompletionOutput = await self.completion(session=session, **payload)  # type: ignore
         except aiohttp.ClientResponseError as e:
             if e.status in (401, 403):
                 raise PermissionError("Authentication failed. Please check your API key.") from e
@@ -505,6 +553,7 @@ class ThinkThinkSyn:
                 return await self.json_complete(
                     prompt,
                     return_type=return_type,
+                    session=session,
                     prompt_type=prompt_type,
                     default=default,
                     return_raw_output=return_raw_output,  # type: ignore
@@ -562,7 +611,13 @@ class ThinkThinkSyn:
         return None
     
     # region embedding
-    async def embedding(self, /, model: EmbeddingModel|str|None=None, **payload: Unpack[EmbeddingInput])->EmbeddingOutput:
+    async def embedding(
+        self,
+        /,
+        model: EmbeddingModel | str | None = None,
+        session: aiohttp.ClientSession | None = None,
+        **payload: Unpack[EmbeddingInput],
+    ) -> EmbeddingOutput:
         '''
         Get embedding for the given text.
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
@@ -590,11 +645,18 @@ class ThinkThinkSyn:
             endpoint=f"/embedding/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
             return_type=EmbeddingOutput,
+            session=session,
         )
     # endregion
     
     # region t2s
-    async def t2s(self, /, model: T2SModel|str|None=None, **payload: Unpack[T2SInput])->T2SOutput:
+    async def t2s(
+        self,
+        /,
+        model: T2SModel | str | None = None,
+        session: aiohttp.ClientSession | None = None,
+        **payload: Unpack[T2SInput],
+    ) -> T2SOutput:
         '''
         Text-to-speech synthesis for the given text.
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
@@ -622,9 +684,16 @@ class ThinkThinkSyn:
             endpoint=f"/t2s/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
             return_type=T2SOutput,
+            session=session,
         )
         
-    async def stream_t2s(self, /, model: T2SModel|str|None=None, **payload: Unpack[T2SInput])->AsyncGenerator[T2SStreamOutput, None]:
+    async def stream_t2s(
+        self,
+        /,
+        model: T2SModel | str | None = None,
+        session: aiohttp.ClientSession | None = None,
+        **payload: Unpack[T2SInput],
+    ) -> AsyncGenerator[T2SStreamOutput, None]:
         '''
         Stream text-to-speech synthesis for the given text.
         NOTE: if `model` or `model_filter` is not provided in the input, a default model will be selected,
@@ -651,6 +720,7 @@ class ThinkThinkSyn:
         async for event in self._stream_request_ai(
             endpoint=f"/t2s/{quote(final_selected_model, safe='')}",
             payload=payload,    # type: ignore
+            session=session,
         ):
             if (data := event.data):
                 yield orjson.loads(data)  # type: ignore
